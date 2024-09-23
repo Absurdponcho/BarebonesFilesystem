@@ -141,6 +141,18 @@ public:
 	{
 	}
 
+	// @brief Appends the contents of the other array to this array
+	// @param Other The other array
+	template <typename TOther>
+	void Append(const TOther& Other)
+	{
+		EnsureCapacityForNewElements(Other.Count);
+		for (uint64 i = 0; i < Other.Count; i++)
+		{
+			Add(Other[i]);
+		}
+	}
+
 	// @brief Adds the element to the array
 	// @param Element The element to add
 	void Add(const TElement& Element)
@@ -557,7 +569,11 @@ public:
 	{
 		if (BitCount % 8 == 0)
 		{
-			InternalArray.Add(0);
+			const uint64 RequiredBytes = (BitCount / 8) + 1;
+			if (RequiredBytes > InternalArray.Length())
+			{
+				InternalArray.AddZeroed(RequiredBytes - InternalArray.Length());
+			}
 		}
 
 		if (bValue)

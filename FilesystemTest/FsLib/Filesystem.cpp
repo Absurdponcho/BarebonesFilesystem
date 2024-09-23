@@ -39,23 +39,16 @@ FsPath FsPath::NormalizePath() const
 	return Result;
 }
 
-bool FsPath::GetPathWithoutFileName(FsPath& OutPath) const
+FsPath FsPath::GetPathWithoutFileName() const
 {
-	if (EndsWith("/"))
-	{
-		OutPath = *this;
-		return true;
-	}
-
 	// Find the last slash
 	uint64 LastSlashIndex = 0;
 	if (!FindLast("/", LastSlashIndex))
 	{
-		return false;
+		return *this;
 	}
 
-	OutPath = Substring(0, LastSlashIndex);
-	return true;
+	return Substring(0, LastSlashIndex);
 }
 
 FsPath FsPath::GetLastPath() const
@@ -67,7 +60,7 @@ FsPath FsPath::GetLastPath() const
 		return *this;
 	}
 
-	return Substring(LastSlashIndex + 1, Length() - LastSlashIndex);
+	return Substring(LastSlashIndex + 1, Length() - LastSlashIndex - 1);
 }
 
 FsPath FsPath::GetFirstPath() const
@@ -93,7 +86,7 @@ FsPath FsPath::GetSubPath() const
 		return *this;
 	}
 
-	return Substring(FirstSlashIndex + 1, Length() - FirstSlashIndex);
+	return Substring(FirstSlashIndex + 1, Length() - FirstSlashIndex - 1);
 }
 
 void FsFileHandle::ResetHandle()
@@ -153,50 +146,449 @@ void FsFilesystem::FileHandleClosed(uint64 HandleUID)
 	fsCheck(false, "Failed to close a file handle");
 }
 
-bool FsFilesystem::CanOpenFile(const FsPath& FileName, EFileHandleFlags Flags)
+bool FsFilesystem::CreateFile(const FsPath& InFileName)
 {
-	if (Flags == EFileHandleFlags::None)
+	const FsPath NormalizedPath = InFileName.NormalizePath();
+	FsLogger::LogFormat(FilesystemLogType::Verbose, "Creating file for %s", NormalizedPath.GetData());
+
+	bool bNeedsResave = false;
+	if (!CreateFile_Internal(NormalizedPath, RootDirectory, bNeedsResave))
 	{
-		FsLogger::LogFormat(FilesystemLogType::Error, "Cannot create file %s with no flags", *FileName.GetData());
 		return false;
 	}
 
-	if (IsFileOpen(FileName, Flags))
+	if (bNeedsResave)
 	{
-		FsLogger::LogFormat(FilesystemLogType::Error, "File %s is already open with these flags.", *FileName.GetData());
-		return false;
+		// Resave the root directory, since it's saved with the filesystem header we will need to save that too.
+		FsFilesystemHeader Header = FsFilesystemHeader();
+		Header.RootDirectory = RootDirectory;
+		SaveFilesystemHeader(Header);
 	}
 
 	return true;
 }
 
-bool FsFilesystem::CreateFile(const FsPath& FileName, EFileHandleFlags Flags, FsFileHandle& OutHandle)
+bool FsFilesystem::CreateFile_Internal(const FsPath& FileName, FsDirectoryDescriptor& CurrentDirectory, bool& bOutNeedsResave)
 {
-	OutHandle.ResetHandle();
-	if (!CanOpenFile(FileName, Flags))
+	const FsPath TopLevelPath = FileName.GetFirstPath();
+	const FsPath SubPath = FileName.GetSubPath();
+
+	// Check if the file already exists
+	for (const FsFileDescriptor& SubDirectoryFile : CurrentDirectory.Files)
 	{
+		if (SubDirectoryFile.FileName != TopLevelPath)
+		{
+			continue;
+		}
+
+		if (!FileName.Contains("/"))
+		{
+			// Finished recursing, found a file with the same name
+			FsLogger::LogFormat(FilesystemLogType::Error, "File %s already exists", FileName.GetData());
+			return false;
+		}
+	}
+
+	// The file does not exist in the current directory
+	if (FileName.Contains("/"))
+	{
+		// We need to recurse into the next directory
+		for (const FsFileDescriptor& SubDirectoryFile : CurrentDirectory.Files)
+		{
+			if (!SubDirectoryFile.bIsDirectory || SubDirectoryFile.FileName != TopLevelPath)
+			{
+				continue;
+			}
+
+			FsDirectoryDescriptor NextDirectory = ReadFileAsDirectory(SubDirectoryFile);
+
+			bool bNeedsResave = false;
+			if (!CreateFile_Internal(SubPath, NextDirectory, bNeedsResave))
+			{
+				return false;
+			}
+
+			if (bNeedsResave)
+			{
+				if (!SaveDirectory(NextDirectory, SubDirectoryFile.FileOffset))
+				{
+					FsLogger::LogFormat(FilesystemLogType::Error, "Failed to save directory %s", SubPath.GetData());
+					return false;
+				}
+			}
+
+			return true;
+		}
+
 		return false;
 	}
 
-	if (OpenFile(FileName, Flags, OutHandle))
+	// The file does not exist in the current directory and we are at the end of the path
+	FsFileDescriptor NewFile = FsFileDescriptor();
+	NewFile.FileName = SubPath;
+	NewFile.bIsDirectory = false;
+	NewFile.FileSize = 0;
+
+	// The file does not have any content yet, so we don't need to allocate any blocks for it.
+	// When we write to the file, we will allocate blocks then.
+	NewFile.FileOffset = 0;
+
+	// Add the new file to the current directory and request a resave
+	CurrentDirectory.Files.Add(NewFile);
+	bOutNeedsResave = true;
+	return true;
+}
+
+bool FsFilesystem::FileExists(const FsPath& InFileName)
+{
+	const FsPath NormalizedPath = InFileName.NormalizePath();
+
+	if (!NormalizedPath.Contains("/"))
 	{
+		// Seeing if this file exists in the root directory
+		for (const FsFileDescriptor& File : RootDirectory.Files)
+		{
+			if (File.FileName == NormalizedPath)
+			{
+				FsLogger::LogFormat(FilesystemLogType::Verbose, "File %s exists", NormalizedPath.GetData());
+				return true;
+			}
+		}
+
+		return false;
+	}
+
+	const FsPath DirectoryPath = NormalizedPath.GetPathWithoutFileName();
+	FsDirectoryDescriptor Directory{};
+	if (!GetDirectory(DirectoryPath, Directory))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get directory for file %s", InFileName.GetData());
+		return false;
+	}
+
+	const FsPath FileName = NormalizedPath.GetLastPath();
+	for (const FsFileDescriptor& File : Directory.Files)
+	{
+		if (File.FileName == FileName)
+		{
+			FsLogger::LogFormat(FilesystemLogType::Verbose, "File %s exists", NormalizedPath.GetData());
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64 Length)
+{
+	const FsPath NormalizedPath = InPath.NormalizePath();
+
+	if (!FileExists(NormalizedPath))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "File %s does not exist", NormalizedPath.GetData());
+		return false;
+	}
+
+	// Get the files directory
+	const FsPath DirectoryPath = NormalizedPath.GetPathWithoutFileName();
+	FsDirectoryDescriptor Directory{};
+	FsFileDescriptor DirectoryFile{};
+	if (!GetDirectory(DirectoryPath, Directory, &DirectoryFile))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get directory for file %s", NormalizedPath.GetData());
+		return false;
+	}
+
+	const FsPath FileName = NormalizedPath.GetLastPath();
+	for (FsFileDescriptor& File : Directory.Files)
+	{
+		if (File.FileName != FileName)
+		{
+			continue;
+		}
+
+		// Get all the chunks for the file
+		const FsArray<FsFileChunkHeader> AllChunks = GetAllChunksForFile(File);
+
+		if (AllChunks.IsEmpty())
+		{
+			// This file is empty and has no blocks allocated for it. Write it entirely.
+			FsLogger::LogFormat(FilesystemLogType::Verbose, "Writing entire file %s with %u bytes", NormalizedPath.GetData(), Length);
+			if (WriteEntireFile_Internal(File, Source, Length))
+			{
+				// If we wrote the file, we need to save the directory
+				if (!SaveDirectory(Directory, DirectoryFile.FileOffset))
+				{
+					FsLogger::LogFormat(FilesystemLogType::Error, "Failed to save directory %s", DirectoryPath.GetData());
+					return false;
+				}
+				return true;
+			}
+			return false;
+		}
+
+		// Get the amount of space that is free in the last chunk
+		const uint64 FreeSpaceInLastChunk = GetFreeAllocatedSpaceInFileChunks(File, &AllChunks);
 		return true;
 	}
 
+	FsLogger::LogFormat(FilesystemLogType::Error, "Failed to write file %s", NormalizedPath.GetData());
+	return false;
+}
 
+bool FsFilesystem::ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Destination, uint64 Length)
+{
+	const FsPath NormalizedPath = InPath.NormalizePath();
+
+	if (!FileExists(NormalizedPath))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "File %s does not exist", NormalizedPath.GetData());
+		return false;
+	}
+
+	// Get the files directory
+	const FsPath DirectoryPath = NormalizedPath.GetPathWithoutFileName();
+	FsDirectoryDescriptor Directory{};
+	if (!GetDirectory(DirectoryPath, Directory))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get directory for file %s", NormalizedPath.GetData());
+		return false;
+	}
+
+	const FsPath FileName = NormalizedPath.GetLastPath();
+
+	for (const FsFileDescriptor& File : Directory.Files)
+	{
+		if (File.FileName != FileName)
+		{
+			continue;
+		}
+
+		// Check the read is within the file length
+		if (Offset + Length > File.FileSize)
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "Read is out of bounds for file %s", NormalizedPath.GetData());
+			return false;
+		}
+
+		// Get all the chunks for the file up to the read length
+		const uint64 MaxReadLength = Offset + Length;
+		const FsArray<FsFileChunkHeader> AllChunks = GetAllChunksForFile(File, &MaxReadLength);
+
+		if (AllChunks.IsEmpty())
+		{
+			// This file is empty and has no blocks allocated for it.
+			FsLogger::LogFormat(FilesystemLogType::Error, "File %s has no chunks allocated to it", NormalizedPath.GetData());
+			return false;
+		}
+
+		// Read the file data from the blocks
+		uint64 BytesRead = 0;
+		uint64 CurrentOffset = Offset;
+		uint64 CurrentAbsoluteOffset = File.FileOffset;
+		uint64 CurrentChunkIndex = 0;
+		uint64 BytesRemainingToRead = Length;
+
+		while (BytesRead < Length && CurrentAbsoluteOffset != 0 && AllChunks.IsValidIndex(CurrentChunkIndex))
+		{
+			const FsFileChunkHeader& CurrentChunk = AllChunks[CurrentChunkIndex];
+			CurrentChunkIndex++;
+			
+			const uint64 ChunkSize = CurrentChunk.Blocks * BlockSize;
+
+			FsArray<uint8> ChunkBuffer = FsArray<uint8>();
+			ChunkBuffer.FillZeroed(ChunkSize);
+
+			// Read the whole chunk
+			const FilesystemReadResult Result = Read(CurrentAbsoluteOffset, ChunkSize, ChunkBuffer.GetData());
+			if (Result != FilesystemReadResult::Success)
+			{
+				FsLogger::LogFormat(FilesystemLogType::Error, "Failed to read chunk %u for file %s", CurrentChunkIndex, NormalizedPath.GetData());
+				return false;
+			}
+
+			for (uint64 ChunkByteIndex = sizeof(FsFileChunkHeader); ChunkByteIndex < ChunkSize; ChunkByteIndex++)
+			{
+				if (CurrentOffset >= Offset)
+				{
+					Destination[BytesRead] = ChunkBuffer[ChunkByteIndex];
+					BytesRead++;
+				}
+
+				CurrentOffset++;
+				if (BytesRead >= Length)
+				{
+					break;
+				}
+
+				if (CurrentOffset >= MaxReadLength)
+				{
+					break;
+				}
+			}
+			CurrentAbsoluteOffset = CurrentChunk.NextBlockIndex;
+		}
+
+		FsLogger::LogFormat(FilesystemLogType::Verbose, "Read %u bytes from file %s", Length, NormalizedPath.GetData());
+		return true;
+	}
+
+	// Could not find the file
+	FsLogger::LogFormat(FilesystemLogType::Error, "Failed to read file %s", NormalizedPath.GetData());
+	return false;
+}
+
+bool FsFilesystem::WriteEntireFile_Internal(FsFileDescriptor& FileDescriptor, const uint8* Source, uint64 Length)
+{
+	// Allocate enough blocks for the file, don't over allocate it
+	const uint64 NumBlocks = Length % BlockSize == 0 ? (Length / BlockSize) : (Length / BlockSize) + 1;
+
+	const FsBlockArray FileBlocks = GetFreeBlocks(NumBlocks);
+	if (FileBlocks.Length() != NumBlocks)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to find %u free blocks for file %s", NumBlocks, FileDescriptor.FileName.GetData());
+		return false;
+	}
+
+	FsLogger::LogFormat(FilesystemLogType::Verbose, "Allocating first block for new file at %u bytes", BlockIndexToAbsoluteOffset(FileBlocks[0]));
+
+	SetBlocksInUse(FileBlocks, true);
+
+	// Write the file data to the blocks (Don't forget their chunk headers)
+	uint64 BytesWritten = 0;
+
+	for (uint64 i = 0; i < NumBlocks; i++)
+	{
+		const uint64 BlockOffset = BlockIndexToAbsoluteOffset(FileBlocks[i]);
+		
+		FsFileChunkHeader ChunkHeader = FsFileChunkHeader();
+		ChunkHeader.NextBlockIndex = i + 1 < NumBlocks ? FileBlocks[i + 1] : 0;
+		ChunkHeader.Blocks = 1;
+
+		FsBitArray BlockBuffer = FsBitArray();
+		FsBitWriter BlockWriter = FsBitWriter(BlockBuffer);
+
+		ChunkHeader.Serialize(BlockWriter);
+
+		const uint64 WriteableSpace = BlockSize - BlockBuffer.ByteLength();
+		const uint64 BytesToWrite = Length - BytesWritten > WriteableSpace ? WriteableSpace : Length - BytesWritten;
+
+		BlockBuffer.AddZeroed(BytesToWrite);
+
+		for (uint64 j = 0; j < BytesToWrite; j++)
+		{
+			BlockBuffer.GetInternalArray().GetData()[j + sizeof(FsFileChunkHeader)] = Source[BytesWritten + j];
+		}
+
+		const FilesystemWriteResult WriteResult = Write(BlockOffset, BlockBuffer.ByteLength(), BlockBuffer.GetInternalArray().GetData());
+		if (WriteResult != FilesystemWriteResult::Success)
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to write block %u for file %s", FileBlocks[i], FileDescriptor.FileName.GetData());
+			return false;
+		}
+
+		BytesWritten += BytesToWrite;
+	}
+
+	FileDescriptor.FileOffset = BlockIndexToAbsoluteOffset(FileBlocks[0]);
+	FileDescriptor.FileSize = Length;
+
+	FsLogger::LogFormat(FilesystemLogType::Verbose, "Wrote entire file %s with %u bytes", FileDescriptor.FileName.GetData(), Length);
 
 	return true;
 }
 
-bool FsFilesystem::OpenFile(const FsPath& FileName, EFileHandleFlags Flags, FsFileHandle& OutHandle)
+FsArray<FsFileChunkHeader> FsFilesystem::GetAllChunksForFile(const FsFileDescriptor& FileDescriptor, const uint64* OptionalFileLength)
 {
-	OutHandle.ResetHandle();
-	if (!CanOpenFile(FileName, Flags))
+	FsArray<FsFileChunkHeader> AllBlocks{};
+
+	if (FileDescriptor.FileOffset == 0)
 	{
-		return false;
+		// This file is empty and has no blocks allocated for it.
+		return AllBlocks;
 	}
 
-	return true;
+	// Read the first block of the file
+	const uint64 ReadOffset = FileDescriptor.FileOffset;
+	const uint64 ReadLength = sizeof(FsFileChunkHeader);
+
+	FsBitArray FileBuffer = FsBitArray();
+	FileBuffer.FillZeroed(ReadLength);
+
+	const FilesystemReadResult ReadResult = Read(ReadOffset, ReadLength, FileBuffer.GetInternalArray().GetData());
+	if (ReadResult != FilesystemReadResult::Success)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to read file %s", FileDescriptor.FileName.GetData());
+		return AllBlocks;
+	}
+
+	FsBitReader FileReader = FsBitReader(FileBuffer);
+
+	FsFileChunkHeader ChunkHeader = FsFileChunkHeader();
+	ChunkHeader.Serialize(FileReader);
+
+	// Read the blocks from the chunk header
+	AllBlocks.Add(ChunkHeader);
+
+	if (OptionalFileLength && *OptionalFileLength < BlockSize)
+	{
+		// We only need the first block
+		return AllBlocks;
+	}
+
+	uint64 NextBlockIndex = ChunkHeader.NextBlockIndex;
+	uint64 CurrentBlockLength = BlockSize;
+	while (NextBlockIndex != 0 && (!OptionalFileLength || CurrentBlockLength < *OptionalFileLength))
+	{
+		const uint64 NextBlockOffset = BlockIndexToAbsoluteOffset(NextBlockIndex);
+
+		FsBitArray NextBlockBuffer = FsBitArray();
+		NextBlockBuffer.FillZeroed(ReadLength);
+
+		const FilesystemReadResult NextBlockReadResult = Read(NextBlockOffset, ReadLength, NextBlockBuffer.GetInternalArray().GetData());
+		if (NextBlockReadResult != FilesystemReadResult::Success)
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to read file %s", FileDescriptor.FileName.GetData());
+			return AllBlocks;
+		}
+
+		FsBitReader NextBlockReader = FsBitReader(NextBlockBuffer);
+
+		FsFileChunkHeader NextChunkHeader = FsFileChunkHeader();
+		NextChunkHeader.Serialize(NextBlockReader);
+
+		AllBlocks.Add(NextChunkHeader);
+		NextBlockIndex = NextChunkHeader.NextBlockIndex;
+		CurrentBlockLength += BlockSize;
+	}
+
+	return AllBlocks;
+
+}
+
+uint64 FsFilesystem::GetFreeAllocatedSpaceInFileChunks(const FsFileDescriptor& FileDescriptor, const FsArray<FsFileChunkHeader>* ChunksToUse)
+{
+	FsArray<FsFileChunkHeader> AllChunks{};
+	if (!ChunksToUse)
+	{
+		AllChunks = GetAllChunksForFile(FileDescriptor);
+		ChunksToUse = &AllChunks;
+	}
+
+	if (ChunksToUse->IsEmpty())
+	{
+		fsCheck(FileDescriptor.FileSize == 0 && FileDescriptor.FileOffset == 0, "File has no chunks allocated to it but has either a file size or file offset.");
+		// This file is empty and has no blocks allocated for it.
+		return 0;
+	}
+
+	uint64 AllocatedSpace = 0;
+	for (const FsFileChunkHeader& Chunk : *ChunksToUse)
+	{
+		AllocatedSpace += Chunk.Blocks * BlockSize;
+	}
+
+	return AllocatedSpace - FileDescriptor.FileSize;
 }
 
 void FsFileChunkHeader::Serialize(FsBitStream& BitStream)
@@ -316,7 +708,7 @@ void FsFilesystem::LoadOrCreateFilesystemHeader()
 	FsLogger::LogFormat(FilesystemLogType::Verbose, "Root directory files: %s", RootFilesList.GetData());
 }
 
-void FsFilesystem::SetBlocksInUse(const FsBaseArray<uint64>& BlockIndices, bool bInUse)
+void FsFilesystem::SetBlocksInUse(const FsBlockArray& BlockIndices, bool bInUse)
 {
 	fsCheck(BlockIndices.Length() > 0, "BlockIndices must have at least one element");
 
@@ -442,7 +834,7 @@ bool FsFilesystem::DirectoryExists(const FsPath& InDirectoryName)
 	return GetDirectory(InDirectoryName, DirectoryDescriptor);
 }
 
-bool FsFilesystem::GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescriptor& OutDirectoryDescriptor)
+bool FsFilesystem::GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescriptor& OutDirectoryDescriptor, FsFileDescriptor* OutDirectoryFile)
 {
 	if (InDirectoryName.Contains("."))
 	{
@@ -453,10 +845,10 @@ bool FsFilesystem::GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescri
 	FsPath NormalizedPath = InDirectoryName.NormalizePath();
 	FsLogger::LogFormat(FilesystemLogType::Verbose, "Getting directory for %s", NormalizedPath.GetData());
 
-	return GetDirectory_Internal(NormalizedPath, RootDirectory, OutDirectoryDescriptor);
+	return GetDirectory_Internal(NormalizedPath, RootDirectory, OutDirectoryDescriptor, OutDirectoryFile);
 }
 
-bool FsFilesystem::GetDirectory_Internal(const FsPath& DirectoryPath, const FsDirectoryDescriptor& CurrentDirectory, FsDirectoryDescriptor& OutDirectory)
+bool FsFilesystem::GetDirectory_Internal(const FsPath& DirectoryPath, const FsDirectoryDescriptor& CurrentDirectory, FsDirectoryDescriptor& OutDirectory, FsFileDescriptor* OutDirectoryFile)
 {
 	const FsPath TopLevelDirectory = DirectoryPath.GetFirstPath();
 	const FsPath SubDirectory = DirectoryPath.GetSubPath();
@@ -474,16 +866,18 @@ bool FsFilesystem::GetDirectory_Internal(const FsPath& DirectoryPath, const FsDi
 			// Finished recursing, found a directory with the same name
 			FsLogger::LogFormat(FilesystemLogType::Verbose, "Found Directory %s", SubDirectoryFile.FileName.GetData());
 			OutDirectory = ReadFileAsDirectory(SubDirectoryFile);
+			if (OutDirectoryFile)
+			{
+				*OutDirectoryFile = SubDirectoryFile;
+			}
 			return true;
 		}
-
-		FsLogger::LogFormat(FilesystemLogType::Verbose, "Found Directory %s, recursing deeper.", SubDirectoryFile.FileName.GetData());
 
 		// Load the found directory
 		const FsDirectoryDescriptor NextDirectory = ReadFileAsDirectory(SubDirectoryFile);
 
 		// Recurse into the next directory
-		const bool bSubPathResult = GetDirectory_Internal(SubDirectory, NextDirectory, OutDirectory);
+		const bool bSubPathResult = GetDirectory_Internal(SubDirectory, NextDirectory, OutDirectory, OutDirectoryFile);
 		if (!bSubPathResult)
 		{
 			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get directory %s", SubDirectory.GetData());
@@ -541,11 +935,8 @@ bool FsFilesystem::CreateDirectory_Internal(const FsPath& DirectoryName, FsDirec
 		if (!SubDirectory.Contains("/"))
 		{
 			// Finished recursing, found a directory with the same name
-			FsLogger::LogFormat(FilesystemLogType::Error, "Directory %s already exists", DirectoryName.GetData());
 			return false;
 		}
-
-		FsLogger::LogFormat(FilesystemLogType::Verbose, "Found Directory %s, recursing deeper.", SubDirectoryFile.FileName.GetData());
 
 		// Load the found directory
 		FsDirectoryDescriptor NextDirectory = ReadFileAsDirectory(SubDirectoryFile);
@@ -554,7 +945,6 @@ bool FsFilesystem::CreateDirectory_Internal(const FsPath& DirectoryName, FsDirec
 		bool bNeedsResave = false;
 		if (!CreateDirectory_Internal(SubDirectory, NextDirectory, bNeedsResave))
 		{
-			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to create directory %s", SubDirectory.GetData());
 			return false;
 		}
 
@@ -621,6 +1011,8 @@ bool FsFilesystem::CreateDirectory_Internal(const FsPath& DirectoryName, FsDirec
 
 bool FsFilesystem::SaveDirectory(const FsDirectoryDescriptor& Directory, uint64 AbsoluteOffset)
 {
+	FsLogger::LogFormat(FilesystemLogType::Verbose, "Saving directory at %u bytes", AbsoluteOffset);
+
 	// Resave the current directory
 	FsBitArray NewDirectoryBuffer = FsBitArray();
 	FsBitWriter NewDirectoryWriter = FsBitWriter(NewDirectoryBuffer);
@@ -673,19 +1065,6 @@ FsDirectoryDescriptor FsFilesystem::ReadFileAsDirectory(const FsFileDescriptor& 
 	DirectoryDescriptor.Serialize(FileReader);
 
 	return DirectoryDescriptor;
-}
-
-bool FsFilesystem::IsFileOpen(const FsPath& FileName, EFileHandleFlags Flags)
-{
-	const FsPath NormalizedPath = FileName.NormalizePath();
-
-	return OpenFileHandles.ContainsByPredicate([&](const FsOpenFileHandle& Handle)
-		{
-			// Check if the file name matches and at least one bit in the flags matches
-			const bool bSameFileName = Handle.FileName == NormalizedPath;
-			const bool bAnyFlagsMatch = (Handle.Flags & Flags) != EFileHandleFlags::None;
-			return bSameFileName && bAnyFlagsMatch;
-		});
 }
 
 bool FsFilesystem::WriteSingleChunk(const FsBitArray& ChunkData, uint64 AbsoluteOffset)

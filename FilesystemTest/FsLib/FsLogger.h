@@ -42,6 +42,16 @@ public:
 
 	virtual void OutputLog(const char* String, FilesystemLogType LogType) = 0;
 
+	static FsLogger* GetInstance()
+	{
+		return Instance;
+	}
+
+	void SetShouldLogVerbose(bool bShouldLog)
+	{
+		bShouldLogVerbose = bShouldLog;
+	}
+
 protected:
 	static FsLogger* Instance;
 

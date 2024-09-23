@@ -40,7 +40,7 @@ public:
 
 	NO_DISCARD FsPath NormalizePath() const;
 
-	bool GetPathWithoutFileName(FsPath& OutPath) const;
+	FsPath GetPathWithoutFileName() const;
 
 	FsPath GetSubPath() const;
 
@@ -153,33 +153,31 @@ public:
 	// Creates a file or opens it if it already exists.
 	// Returns true if the file was created or opened.
 	// Returns false if the file could not be created or opened, such as if the file is locked.
-	bool CreateFile(const FsPath& FileName, EFileHandleFlags Flags, FsFileHandle& OutHandle);
-	bool OpenFile(const FsPath& FileName, EFileHandleFlags Flags, FsFileHandle& OutHandle);
-	bool FileExists(const FsPath& FileName);
+	bool CreateFile(const FsPath& FileName);
+	bool FileExists(const FsPath& InFileName);
 	bool CreateDirectory(const FsPath& InDirectoryName);
+	bool WriteToFile(const FsPath& InPath, const uint8* Source, uint64 Length);
+	bool ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Destination, uint64 Length);
 	void DeleteDirectory(const FsPath& DirectoryName);
 	void DeleteFile(const FsPath& FileName);
 	void MoveFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
 	void CopyFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
-	bool GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescriptor& OutDirectoryDescriptor);
+	bool GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescriptor& OutDirectoryDescriptor, FsFileDescriptor* OutDirectoryFile = nullptr);
 	bool DirectoryExists(const FsPath& InDirectoryName);
 
-	// @brief Checks if a file can be opened at the file name and flags
-	// @param FileName The name of the file to check.
-	// @param Flags The flags to check for.
-	// @return True if the file can be opened with the specified flags.
-	bool CanOpenFile(const FsPath& FileName, EFileHandleFlags Flags);
-
-	// @brief Checks if the file is already opened for reading or writing.
-	// @param FileName The name of the file to check.
-	// @param Flags The flags to check for.
-	// @return True if the file is already opened with the specified flags.
-	bool IsFileOpen(const FsPath& FileName, EFileHandleFlags Flags);
-
-protected:
+//protected:
 
 	bool CreateDirectory_Internal(const FsPath& InDirectoryName, FsDirectoryDescriptor& CurrentDirectory, bool& bOutNeedsResave);
-	bool GetDirectory_Internal(const FsPath& InDirectoryName, const FsDirectoryDescriptor& CurrentDirectory, FsDirectoryDescriptor& OutDirectory);
+	bool GetDirectory_Internal(const FsPath& InDirectoryName, const FsDirectoryDescriptor& CurrentDirectory, FsDirectoryDescriptor& OutDirectory, FsFileDescriptor* OutDirectoryFile);
+	bool CreateFile_Internal(const FsPath& FileName, FsDirectoryDescriptor& CurrentDirectory, bool& bOutNeedsResave);
+
+	// Gets all the chunks for the given file, optionally only getting chunks up to a certain file length.
+	FsArray<FsFileChunkHeader> GetAllChunksForFile(const FsFileDescriptor& FileDescriptor, const uint64* OptionalFileLength = nullptr);
+
+	// Compares the file size to the amount of blocks allocated to the file.
+	uint64 GetFreeAllocatedSpaceInFileChunks(const FsFileDescriptor& FileDescriptor, const FsArray<FsFileChunkHeader>* OptionalInChunks);
+
+	bool WriteEntireFile_Internal(FsFileDescriptor& FileDescriptor, const uint8* Source, uint64 Length);
 
 	virtual FilesystemReadResult Read(uint64 Offset, uint64 Length, uint8* Destination) = 0;
 	virtual FilesystemWriteResult Write(uint64 Offset, uint64 Length, const uint8* Source) = 0;
@@ -192,7 +190,7 @@ protected:
 	void FileHandleClosed(uint64 HandleUID);
 	void LoadOrCreateFilesystemHeader();
 	void SaveFilesystemHeader(const FsFilesystemHeader& InHeader);
-	void SetBlocksInUse(const FsBaseArray<uint64>& BlockIndices, bool bInUse);
+	void SetBlocksInUse(const FsBlockArray& BlockIndices, bool bInUse);
 	void ClearBlockBuffer();
 	FsBitArray ReadBlockBuffer();
 	FsBlockArray GetFreeBlocks(uint64 NumBlocks);

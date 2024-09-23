@@ -629,6 +629,16 @@ public:
 		return !Equals(InString);
 	}
 
+	// @brief Add the amount of zero characters to the string
+	// @param Amount The amount of zero characters to add
+	void AddZeroed(uint64 Amount)
+	{
+		for (uint64 i = 0; i < Amount; i++)
+		{
+			Data.Add('\0');
+		}
+	}
+
 protected:
 	TStringDataArray Data{};
 };

@@ -48,6 +48,12 @@ void FsFormatter::Format(char* buffer, uint64 bufferSize, const char* format, ..
 			FormatPointer(buffer, bufferIndex, bufferSize, ptr);
 			break;
 		}
+		case 'c':
+		{
+			char c = va_arg(args, int);
+			FormatCharacter(buffer, bufferIndex, bufferSize, c);
+			break;
+		}
 		default:
 			buffer[bufferIndex++] = *formatPtr;
 			break;
@@ -141,5 +147,11 @@ void FsFormatter::FormatPointer(char* buffer, uint64& bufferIndex, uint64 buffer
 		buffer[bufferIndex++] = tempBuffer[--tempBufferIndex];
 	}
 
+	buffer[bufferIndex] = '\0';
+}
+
+void FsFormatter::FormatCharacter(char* buffer, uint64& bufferIndex, uint64 bufferSize, char c)
+{
+	buffer[bufferIndex++] = c;
 	buffer[bufferIndex] = '\0';
 }

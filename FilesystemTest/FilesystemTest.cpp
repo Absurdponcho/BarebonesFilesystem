@@ -16,8 +16,7 @@ void TestPaths()
 
 	FsLogger::LogFormat(FilesystemLogType::Info, "Normalized path: %s", TestPath.GetData());
 
-	FsPath DirPath = "";
-	TestPath.GetPathWithoutFileName(DirPath);
+	FsPath DirPath = TestPath.GetPathWithoutFileName();
 
 	FsLogger::LogFormat(FilesystemLogType::Info, "Directory path: %s", DirPath.GetData());
 }
@@ -75,17 +74,23 @@ int main()
 
 	FsFilesystem.Initialize();
 
-	const char* CursedPath = "Foo/Bar/Baz\\a/b/\\d/test/welp\\\\dead/fart";
+	FsLogger::GetInstance()->SetShouldLogVerbose(false);
 
-	FsDirectoryDescriptor ExistingDirectory;
-	if (FsFilesystem.GetDirectory(CursedPath, ExistingDirectory))
-	{
-		FsLogger::LogFormat(FilesystemLogType::Info, "Directory %s exists!", CursedPath);
-	}
-	else
-	{
-		FsFilesystem.CreateDirectory(CursedPath);
-	}
+	const char* DirPath = "Foo/Bar/Baz";
+	FsFilesystem.CreateDirectory(DirPath);
+
+	const char* TestFileName = "Foo/Bar/Baz/Test.txt";
+	FsFilesystem.CreateFile(TestFileName);
+
+	FsFilesystem.WriteToFile(TestFileName, reinterpret_cast<const uint8*>("Hello, World!"), 14);
+
+	FsLogger::LogFormat(FilesystemLogType::Info, "Wrote string: Hello, World!");
+
+	FsString ReadString = FsString();
+	ReadString.AddZeroed(14);
+	FsFilesystem.ReadFromFile(TestFileName, 0, reinterpret_cast<uint8*>(ReadString.GetData()), 14);
+
+	FsLogger::LogFormat(FilesystemLogType::Info, "Read string: %s", ReadString.GetData());
 
 	return 0;
 
