@@ -43,7 +43,7 @@ static char FsToUpper(char Character)
 	return Character;
 }
 
-template<typename TArray>
+template<typename TStringDataArray>
 class FsBaseStringImpl : public FsBaseString
 {
 public:
@@ -630,7 +630,7 @@ public:
 	}
 
 protected:
-	TArray Data{};
+	TStringDataArray Data{};
 };
 
 class FsString : public FsBaseStringImpl<FsArray<char>>
@@ -669,12 +669,12 @@ public:
 		: FsBaseStringImpl<FsFixedLengthArray<char, FixedLength>>(InString)
 	{}
 
-	template<typename TOther = FsBaseStringImpl>
+	template<typename TOther>
 	FsFixedLengthString(const TOther& InString)
 		: FsBaseStringImpl<FsFixedLengthArray<char, FixedLength>>(InString)
 	{}
 
-	template<typename TOther = FsBaseStringImpl>
+	template<typename TOther>
 	FsFixedLengthString(const TOther* InString)
 		: FsBaseStringImpl<FsFixedLengthArray<char, FixedLength>>(InString)
 	{}

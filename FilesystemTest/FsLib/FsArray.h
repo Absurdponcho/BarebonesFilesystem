@@ -4,8 +4,8 @@
 #include "FsCheck.h"
 #include "FsArrayAllocators.h"
 #include "FsLogger.h"
-#include "FsFunction.h"
 #include "FsNew.h"
+#include "FsTypeTraits.h"
 
 template<typename TElement>
 class FsBaseArray;
@@ -485,9 +485,7 @@ template<typename TElement, uint64 FixedLength>
 class FsFixedLengthArray : public FsBaseArrayImpl<TElement, FsFixedLengthArrayAllocator<TElement, FixedLength>>
 {
 public:
-	typedef FsBaseArrayImpl<TElement, FsFixedLengthArrayAllocator<TElement, FixedLength>> Super;
-
-	using Super::FsBaseArrayImpl;
+	using Super = FsBaseArrayImpl<TElement, FsFixedLengthArrayAllocator<TElement, FixedLength>>;
 
 	// Copy operator
 	FsFixedLengthArray& operator=(const FsFixedLengthArray& Other)
@@ -713,7 +711,7 @@ template <uint64 FixedLength>
 class FsFixedLengthBitArray : public FsBaseBitArrayImpl<FsFixedLengthArrayAllocator<uint8, FixedLength>>
 {
 public:
-	using Super = FsBaseBitArrayImpl;
+	using Super = FsBitArray::FsBaseBitArrayImpl;
 
 	// Copy operator
 	FsFixedLengthBitArray& operator=(const FsFixedLengthBitArray& Other)
