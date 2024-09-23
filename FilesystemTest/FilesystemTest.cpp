@@ -75,9 +75,17 @@ int main()
 
 	FsFilesystem.Initialize();
 
-	FsFilesystem.CreateDirectory("Foo/Bar");
-	FsFilesystem.CreateDirectory("Foo/Bar");
-	FsFilesystem.CreateDirectory("Foo/Bar");
+	const char* CursedPath = "Foo/Bar/Baz\\a/b/\\d/test/welp\\\\dead/fart";
+
+	FsDirectoryDescriptor ExistingDirectory;
+	if (FsFilesystem.GetDirectory(CursedPath, ExistingDirectory))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Info, "Directory %s exists!", CursedPath);
+	}
+	else
+	{
+		FsFilesystem.CreateDirectory(CursedPath);
+	}
 
 	return 0;
 

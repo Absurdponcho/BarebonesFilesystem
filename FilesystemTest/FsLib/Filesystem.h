@@ -156,11 +156,13 @@ public:
 	bool CreateFile(const FsPath& FileName, EFileHandleFlags Flags, FsFileHandle& OutHandle);
 	bool OpenFile(const FsPath& FileName, EFileHandleFlags Flags, FsFileHandle& OutHandle);
 	bool FileExists(const FsPath& FileName);
-	bool CreateDirectory(const FsPath& DirectoryName);
+	bool CreateDirectory(const FsPath& InDirectoryName);
 	void DeleteDirectory(const FsPath& DirectoryName);
 	void DeleteFile(const FsPath& FileName);
 	void MoveFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
 	void CopyFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
+	bool GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescriptor& OutDirectoryDescriptor);
+	bool DirectoryExists(const FsPath& InDirectoryName);
 
 	// @brief Checks if a file can be opened at the file name and flags
 	// @param FileName The name of the file to check.
@@ -176,7 +178,8 @@ public:
 
 protected:
 
-	bool CreateDirectory_Internal(const FsPath& DirectoryName, const FsDirectoryDescriptor& CurrentDirectory, bool& bOutHasNewFile, FsFileDescriptor& OutNewFile);
+	bool CreateDirectory_Internal(const FsPath& InDirectoryName, FsDirectoryDescriptor& CurrentDirectory, bool& bOutNeedsResave);
+	bool GetDirectory_Internal(const FsPath& InDirectoryName, const FsDirectoryDescriptor& CurrentDirectory, FsDirectoryDescriptor& OutDirectory);
 
 	virtual FilesystemReadResult Read(uint64 Offset, uint64 Length, uint8* Destination) = 0;
 	virtual FilesystemWriteResult Write(uint64 Offset, uint64 Length, const uint8* Source) = 0;
@@ -185,8 +188,6 @@ protected:
 	friend class CheckImplementer;
 	friend class FsLogger;
 	friend class FsMemory;
-
-	bool GetDirectory(const FsPath& DirectoryPath, FsDirectoryDescriptor& OutDirectoryDescriptor);
 
 	void FileHandleClosed(uint64 HandleUID);
 	void LoadOrCreateFilesystemHeader();
@@ -197,6 +198,7 @@ protected:
 	FsBlockArray GetFreeBlocks(uint64 NumBlocks);
 
 	FsDirectoryDescriptor ReadFileAsDirectory(const FsFileDescriptor& FileDescriptor);
+	bool SaveDirectory(const FsDirectoryDescriptor& Directory, uint64 AbsoluteOffset);
 
 	static uint64 NextFileHandleUID;
 	
@@ -234,5 +236,7 @@ protected:
 		fsCheck(Result % BlockSize == 0, "Block index is not aligned to block size");
 		return Result;
 	}
+
+	bool WriteSingleChunk(const FsBitArray& ChunkData, uint64 AbsoluteOffset);
 };
 

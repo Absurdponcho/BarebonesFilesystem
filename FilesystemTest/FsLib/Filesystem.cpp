@@ -436,8 +436,63 @@ void FsFilesystem::SaveFilesystemHeader(const FsFilesystemHeader& InHeader)
 	FsLogger::LogFormat(FilesystemLogType::Verbose, "Filesystem header written successfully");
 }
 
-bool FsFilesystem::GetDirectory(const FsPath& DirectoryPath, FsDirectoryDescriptor& OutDirectoryDescriptor)
+bool FsFilesystem::DirectoryExists(const FsPath& InDirectoryName)
 {
+	FsDirectoryDescriptor DirectoryDescriptor;
+	return GetDirectory(InDirectoryName, DirectoryDescriptor);
+}
+
+bool FsFilesystem::GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescriptor& OutDirectoryDescriptor)
+{
+	if (InDirectoryName.Contains("."))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Cannot get directory with a file extension: %s", InDirectoryName.GetData());
+		return false;
+	}
+
+	FsPath NormalizedPath = InDirectoryName.NormalizePath();
+	FsLogger::LogFormat(FilesystemLogType::Verbose, "Getting directory for %s", NormalizedPath.GetData());
+
+	return GetDirectory_Internal(NormalizedPath, RootDirectory, OutDirectoryDescriptor);
+}
+
+bool FsFilesystem::GetDirectory_Internal(const FsPath& DirectoryPath, const FsDirectoryDescriptor& CurrentDirectory, FsDirectoryDescriptor& OutDirectory)
+{
+	const FsPath TopLevelDirectory = DirectoryPath.GetFirstPath();
+	const FsPath SubDirectory = DirectoryPath.GetSubPath();
+
+	// Check if the top level directory exists
+	for (const FsFileDescriptor& SubDirectoryFile : CurrentDirectory.Files)
+	{
+		if (!SubDirectoryFile.bIsDirectory || SubDirectoryFile.FileName != TopLevelDirectory)
+		{
+			continue;
+		}
+
+		if (!DirectoryPath.Contains("/"))
+		{
+			// Finished recursing, found a directory with the same name
+			FsLogger::LogFormat(FilesystemLogType::Verbose, "Found Directory %s", SubDirectoryFile.FileName.GetData());
+			OutDirectory = ReadFileAsDirectory(SubDirectoryFile);
+			return true;
+		}
+
+		FsLogger::LogFormat(FilesystemLogType::Verbose, "Found Directory %s, recursing deeper.", SubDirectoryFile.FileName.GetData());
+
+		// Load the found directory
+		const FsDirectoryDescriptor NextDirectory = ReadFileAsDirectory(SubDirectoryFile);
+
+		// Recurse into the next directory
+		const bool bSubPathResult = GetDirectory_Internal(SubDirectory, NextDirectory, OutDirectory);
+		if (!bSubPathResult)
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get directory %s", SubDirectory.GetData());
+			return false;
+		}
+
+		return bSubPathResult;
+	}
+
 	return false;
 }
 
@@ -452,109 +507,88 @@ bool FsFilesystem::CreateDirectory(const FsPath& InDirectoryName)
 	FsPath NormalizedPath = InDirectoryName.NormalizePath();
 	FsLogger::LogFormat(FilesystemLogType::Verbose, "Creating directory for %s", NormalizedPath.GetData());
 
-	// We might make a file, if so we need to know what it is and add it to the root directory
-	FsFileDescriptor PossibleNewDirectoryFile{};
-	bool bHasNewFile = false;
-	if (!CreateDirectory_Internal(NormalizedPath, RootDirectory, bHasNewFile, PossibleNewDirectoryFile))
+	bool bNeedsResave = false;
+	if (!CreateDirectory_Internal(NormalizedPath, RootDirectory, bNeedsResave))
 	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to create directory %s", NormalizedPath.GetData());
 		return false;
 	}
 
-	if (bHasNewFile)
+	if (bNeedsResave)
 	{
-		// Created a directory file, need to add it to the root directory.
-		RootDirectory.Files.Add(PossibleNewDirectoryFile);
-
 		// Resave the root directory, since it's saved with the filesystem header we will need to save that too.
 		FsFilesystemHeader Header = FsFilesystemHeader();
 		Header.RootDirectory = RootDirectory;
 		SaveFilesystemHeader(Header);
-
-		FsLogger::LogFormat(FilesystemLogType::Verbose, "Added file directory %s to root", PossibleNewDirectoryFile.FileName.GetData());
 	}
 
 	return true;
 }
 
-bool FsFilesystem::CreateDirectory_Internal(const FsPath& DirectoryName, const FsDirectoryDescriptor& CurrentDirectory, bool& bOutHasNewFile, FsFileDescriptor& OutNewFile)
+bool FsFilesystem::CreateDirectory_Internal(const FsPath& DirectoryName, FsDirectoryDescriptor& CurrentDirectory, bool& bOutNeedsResave)
 {
-	const FsPath FirstPath = DirectoryName.GetFirstPath();
+	const FsPath TopLevelDirectory = DirectoryName.GetFirstPath();
+	const FsPath SubDirectory = DirectoryName.GetSubPath();
 
 	// Check if the directory already exists
-	for (const FsFileDescriptor& File : CurrentDirectory.Files)
+	for (const FsFileDescriptor& SubDirectoryFile : CurrentDirectory.Files)
 	{
-		if (File.FileName != FirstPath)
+		if (!SubDirectoryFile.bIsDirectory || SubDirectoryFile.FileName != TopLevelDirectory)
 		{
 			continue;
 		}
 
-		if (!DirectoryName.Contains("/"))
-		{	
-			// Finished recursing
+		if (!SubDirectory.Contains("/"))
+		{
+			// Finished recursing, found a directory with the same name
 			FsLogger::LogFormat(FilesystemLogType::Error, "Directory %s already exists", DirectoryName.GetData());
 			return false;
 		}
 
+		FsLogger::LogFormat(FilesystemLogType::Verbose, "Found Directory %s, recursing deeper.", SubDirectoryFile.FileName.GetData());
+
+		// Load the found directory
+		FsDirectoryDescriptor NextDirectory = ReadFileAsDirectory(SubDirectoryFile);
+
 		// Recurse into the next directory
-		FsLogger::LogFormat(FilesystemLogType::Verbose, "Found Directory %s, recursing deeper.", File.FileName.GetData());
-
-		// Load the file into memory
-		const FsDirectoryDescriptor NextDirectory = ReadFileAsDirectory(File);
-
-		// We might make a file, if so we need to know what it is and add it to this directory
-		bool bHasNewFile = false;
-		FsFileDescriptor PossibleNewDirectoryFile;
-
-		const FsPath SubPath = DirectoryName.GetSubPath();
-
-		if (!CreateDirectory_Internal(SubPath, NextDirectory, bHasNewFile, PossibleNewDirectoryFile))
+		bool bNeedsResave = false;
+		if (!CreateDirectory_Internal(SubDirectory, NextDirectory, bNeedsResave))
 		{
-			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to create directory %s", SubPath.GetData());
+			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to create directory %s", SubDirectory.GetData());
 			return false;
 		}
 
-		if (bHasNewFile)
+		// If the directory was modified by the recursed call adding a new file, we need will to resave it
+		if (bNeedsResave)
 		{
-			// Created a directory file, need to add it to the current directory.
-
-			FsDirectoryDescriptor NewDirectory = NextDirectory;
-			NewDirectory.Files.Add(PossibleNewDirectoryFile);
-
-			// Resave the current directory
-			FsBitArray NewDirectoryBuffer = FsBitArray();
-			FsBitWriter NewDirectoryWriter = FsBitWriter(NewDirectoryBuffer);
-
-			// Dont forget the chunk header
-			FsFileChunkHeader ChunkHeader = FsFileChunkHeader();
-			ChunkHeader.NextBlockIndex = 0;
-			ChunkHeader.Blocks = 1;
-
-			ChunkHeader.Serialize(NewDirectoryWriter);
-
-			NewDirectory.Serialize(NewDirectoryWriter);
-
-			const uint64 AbsoluteOffset = File.FileOffset;
-
-			const FilesystemWriteResult WriteResult = Write(AbsoluteOffset, NewDirectoryBuffer.ByteLength(), NewDirectoryBuffer.GetInternalArray().GetData());
-			if (WriteResult != FilesystemWriteResult::Success)
+			if (!SaveDirectory(NextDirectory, SubDirectoryFile.FileOffset))
 			{
-				FsLogger::LogFormat(FilesystemLogType::Error, "Failed to write new directory");
+				FsLogger::LogFormat(FilesystemLogType::Error, "Failed to save directory %s", SubDirectory.GetData());
 				return false;
 			}
-
-			FsLogger::LogFormat(FilesystemLogType::Verbose, "Added file directory %s to directory %s at offset %u", PossibleNewDirectoryFile.FileName.GetData(), File.FileName.GetData(), AbsoluteOffset);
-
-			return true;
+			FsLogger::LogFormat(FilesystemLogType::Verbose, "Added file directory %s to directory %s at offset %u", SubDirectory.GetData(), SubDirectoryFile.FileName.GetData(), SubDirectoryFile.FileOffset);
 		}
-		return true;
 	}
 
-	// The directory does not exist, so we can create it
-	FsFileDescriptor NewDirectoryFile;
-	NewDirectoryFile.FileName = FirstPath;
-	NewDirectoryFile.bIsDirectory = true;
+	// The directory does not exist, so we need to create it, along with a new file.
+	FsDirectoryDescriptor NewDirectory = FsDirectoryDescriptor();
 
-	// find a block for the new directory
+	FsLogger::LogFormat(FilesystemLogType::Verbose, "Creating directory %s", TopLevelDirectory.GetData());
+	
+	// Recurse into the new directory if we have subdirectories, so we can populate its files before we save it.
+	if (DirectoryName.Contains("/"))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Verbose, "Creating subdirectory %s", SubDirectory.GetData());
+
+		bool bNeedsResave = false;
+		if (!CreateDirectory_Internal(SubDirectory, NewDirectory, bNeedsResave))
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to create subdirectory %s", SubDirectory.GetData());
+			return false;
+		}
+	}
+
+	// Allocate a block on the filesystem for the new directory file.
 	const FsBlockArray NewDirectoryBlocks = GetFreeBlocks(1);
 	if (NewDirectoryBlocks.Length() == 0)
 	{
@@ -566,33 +600,46 @@ bool FsFilesystem::CreateDirectory_Internal(const FsPath& DirectoryName, const F
 
 	const uint64 AbsoluteOffset = BlockIndexToAbsoluteOffset(NewDirectoryBlocks[0]);
 
-	NewDirectoryFile.FileOffset = AbsoluteOffset;
-	NewDirectoryFile.FileSize = 0;
-
 	// Save the new directory
-	FsBitArray NewDirectoryBuffer = FsBitArray();
-	FsBitWriter NewDirectoryWriter = FsBitWriter(NewDirectoryBuffer);
-
-	// Add a chunk header
-	FsFileChunkHeader ChunkHeader;
-	ChunkHeader.NextBlockIndex = 0;
-	ChunkHeader.Blocks = 1;
-	ChunkHeader.Serialize(NewDirectoryWriter);
-
-	// Add the new empty directory descriptor
-	FsDirectoryDescriptor NewDirectoryDescriptor = FsDirectoryDescriptor();
-	NewDirectoryDescriptor.Serialize(NewDirectoryWriter);
-
-	// Write the new directory to disk
-	const FilesystemWriteResult WriteResult = Write(AbsoluteOffset, NewDirectoryBuffer.ByteLength(), NewDirectoryBuffer.GetInternalArray().GetData());
-	if (WriteResult != FilesystemWriteResult::Success)
+	if (!SaveDirectory(NewDirectory, AbsoluteOffset))
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to write new directory");
 		return false;
 	}
 
-	OutNewFile = NewDirectoryFile;
-	bOutHasNewFile = true;
+	FsFileDescriptor NewDirectoryFile;
+	NewDirectoryFile.FileName = TopLevelDirectory;
+	NewDirectoryFile.bIsDirectory = true;
+	NewDirectoryFile.FileOffset = AbsoluteOffset;
+	NewDirectoryFile.FileSize = 0;
+
+	// Add the new file to the current directory and request a resave
+	CurrentDirectory.Files.Add(NewDirectoryFile);
+	bOutNeedsResave = true;
+	return true;
+}
+
+bool FsFilesystem::SaveDirectory(const FsDirectoryDescriptor& Directory, uint64 AbsoluteOffset)
+{
+	// Resave the current directory
+	FsBitArray NewDirectoryBuffer = FsBitArray();
+	FsBitWriter NewDirectoryWriter = FsBitWriter(NewDirectoryBuffer);
+
+	// Dont forget the chunk header
+	FsFileChunkHeader ChunkHeader = FsFileChunkHeader();
+	ChunkHeader.NextBlockIndex = 0;
+	ChunkHeader.Blocks = 1;
+
+	ChunkHeader.Serialize(NewDirectoryWriter);
+
+	const_cast<FsDirectoryDescriptor&>(Directory).Serialize(NewDirectoryWriter);
+
+	if (!WriteSingleChunk(NewDirectoryBuffer, AbsoluteOffset))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to write new directory");
+		return false;
+	}
+
 	return true;
 }
 
@@ -639,4 +686,23 @@ bool FsFilesystem::IsFileOpen(const FsPath& FileName, EFileHandleFlags Flags)
 			const bool bAnyFlagsMatch = (Handle.Flags & Flags) != EFileHandleFlags::None;
 			return bSameFileName && bAnyFlagsMatch;
 		});
+}
+
+bool FsFilesystem::WriteSingleChunk(const FsBitArray& ChunkData, uint64 AbsoluteOffset)
+{
+	fsCheck(ChunkData.ByteLength() <= BlockSize, "Tried to write too much data to a single chunk!");
+	if (ChunkData.ByteLength() > BlockSize)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Tried to write too much data to a single chunk!");
+		return false;
+	}
+
+	const FilesystemWriteResult WriteResult = Write(AbsoluteOffset, ChunkData.ByteLength(), ChunkData.GetInternalArray().GetData());
+	if (WriteResult != FilesystemWriteResult::Success)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to write to %u", AbsoluteOffset);
+		return false;
+	}
+
+	return true;
 }
