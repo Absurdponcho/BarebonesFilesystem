@@ -31,4 +31,6 @@
 *.out
 *.app
 /.vs/FilesystemTest
-/FilesystemTest/x64/Debug
+/FilesystemTest/x64
+/x64
+VirtualFileSystem.dat
