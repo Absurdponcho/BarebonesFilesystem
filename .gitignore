@@ -30,3 +30,5 @@
 *.exe
 *.out
 *.app
+/.vs/FilesystemTest
+/FilesystemTest/x64/Debug
