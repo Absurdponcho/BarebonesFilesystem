@@ -3,10 +3,12 @@
 #include <iostream>
 #include <climits>
 #include <cstring>
+
 #ifdef CMAKE
 #include "config.h"
-#elif defined(WIN32)
-#define HAS_STRERROR_S
+#elif defined(_WIN32)
+#define HAS_STRERROR_S 1
+#include <windows.h>
 #endif
 
 void FsFilesystemImpl::CreateVirtualFile(uint64 InPartitionSize)
@@ -50,7 +52,7 @@ void FsFilesystemImpl::CreateVirtualFile(uint64 InPartitionSize)
 	//FsLogger::LogFormat(FilesystemLogType::Info, "Created 1GB file at full path: %s", );
 
 	// Get full file path
-	#ifdef WIN32
+	#ifdef _WIN32
 	char FullPath[MAX_PATH];
 	DWORD result = GetFullPathNameA(VirtualFileName, MAX_PATH - 1, FullPath, nullptr);
 	if (result == 0 || result > MAX_PATH) {
