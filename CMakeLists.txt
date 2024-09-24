@@ -1,0 +1,52 @@
+cmake_minimum_required (VERSION 3.20)
+cmake_policy(VERSION 3.20)
+
+project (
+    BarebonesFilesystem
+    VERSION 0.1.0
+)
+
+set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_C_STANDARD_REQUIRED ON)
+set(CMAKE_C_STANDARD 11)
+
+include(CheckCSourceCompiles)
+
+file(READ ${CMAKE_CURRENT_LIST_DIR}/cmake/check_builtin.c CHECK_BUILTIN_SRC)
+set(CMAKE_REQUIRED_DEFINITIONS "-DBUILTIN_FUNC=__builtin_trap")
+check_c_source_compiles("${CHECK_BUILTIN_SRC}" HAS_BUILTIN_TRAP)
+unset(CMAKE_REQUIRED_DEFINITIONS)
+
+set(GENERATED_HEADERS_DIR "${CMAKE_BINARY_DIR}/generated_headers")
+configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake/config.h.in ${GENERATED_HEADERS_DIR}/config.h)
+
+aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/FilesystemTest/FsLib FSLIB_SRC)
+add_library(
+    BarebonesFilesystem
+    STATIC
+    ${FSLIB_SRC}
+)
+
+target_compile_options(
+    BarebonesFilesystem  PRIVATE
+    -DCMAKE
+)
+
+target_include_directories(
+    BarebonesFilesystem PRIVATE 
+    ${GENERATED_HEADERS_DIR}
+)
+
+aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/FilesystemTest/ MAIN_SRC)
+add_executable(
+    FilesystemTest
+    ${MAIN_SRC}
+)
+
+target_link_libraries(
+    FilesystemTest
+    PRIVATE
+    BarebonesFilesystem
+)
