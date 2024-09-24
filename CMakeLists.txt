@@ -13,11 +13,14 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_STANDARD 11)
 
 include(CheckCSourceCompiles)
+include(CheckSymbolExists)
 
 file(READ ${CMAKE_CURRENT_LIST_DIR}/cmake/check_builtin.c CHECK_BUILTIN_SRC)
 set(CMAKE_REQUIRED_DEFINITIONS "-DBUILTIN_FUNC=__builtin_trap")
 check_c_source_compiles("${CHECK_BUILTIN_SRC}" HAS_BUILTIN_TRAP)
 unset(CMAKE_REQUIRED_DEFINITIONS)
+check_symbol_exists(strerror_s "string.h" HAS_STRERROR_S)
+check_symbol_exists(strerror_r "string.h" HAS_STRERROR_R)
 
 set(GENERATED_HEADERS_DIR "${CMAKE_BINARY_DIR}/generated_headers")
 configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake/config.h.in ${GENERATED_HEADERS_DIR}/config.h)
@@ -32,6 +35,7 @@ add_library(
 target_compile_options(
     BarebonesFilesystem  PRIVATE
     -DCMAKE
+    -DFS_LIB
 )
 
 target_include_directories(
@@ -43,6 +47,16 @@ aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/FilesystemTest/ MAIN_SRC)
 add_executable(
     FilesystemTest
     ${MAIN_SRC}
+)
+
+target_include_directories(
+    FilesystemTest PRIVATE 
+    ${GENERATED_HEADERS_DIR}
+)
+
+target_compile_options(
+    FilesystemTest PRIVATE
+    -DCMAKE
 )
 
 target_link_libraries(
