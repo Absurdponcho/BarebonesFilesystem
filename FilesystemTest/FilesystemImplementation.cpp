@@ -6,10 +6,12 @@
 
 #ifdef CMAKE
 #include "config.h"
-#elif defined(_WIN32)
+#elif defined(WIN32)
 #define HAS_STRERROR_S 1
-#define WIN32_LEAN_AND_MEAN
-#include <windows.h>
+#endif
+
+#ifdef WIN32
+#include <Windows.h>
 #endif
 
 void FsFilesystemImpl::CreateVirtualFile(uint64 InPartitionSize)
