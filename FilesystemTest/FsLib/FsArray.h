@@ -696,7 +696,7 @@ template <uint64 FixedLength>
 class FsFixedLengthBitArray : public FsBaseBitArrayImpl<FsFixedLengthArray<uint8, FixedLength>>
 {
 public:
-	using Super = FsBitArray::FsBaseBitArrayImpl;
+	using Super = FsBitArray::FsBaseBitArrayImpl<FsFixedLengthArrayAllocator<uint8, FixedLength>>;
 
 	// Copy operator
 	FsFixedLengthBitArray& operator=(const FsFixedLengthBitArray& Other)

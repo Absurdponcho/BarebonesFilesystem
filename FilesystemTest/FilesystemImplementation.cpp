@@ -1,7 +1,13 @@
 #include "FilesystemImplementation.h"
 #include <fstream>
 #include <iostream>
-#include <Windows.h>
+#include <climits>
+#include <cstring>
+#ifdef CMAKE
+#include "config.h"
+#elif defined(WIN32)
+#define HAS_STRERROR_S
+#endif
 
 void FsFilesystemImpl::CreateVirtualFile(uint64 InPartitionSize)
 {
@@ -44,6 +50,7 @@ void FsFilesystemImpl::CreateVirtualFile(uint64 InPartitionSize)
 	//FsLogger::LogFormat(FilesystemLogType::Info, "Created 1GB file at full path: %s", );
 
 	// Get full file path
+	#ifdef WIN32
 	char FullPath[MAX_PATH];
 	DWORD result = GetFullPathNameA(VirtualFileName, MAX_PATH - 1, FullPath, nullptr);
 	if (result == 0 || result > MAX_PATH) {
@@ -51,6 +58,15 @@ void FsFilesystemImpl::CreateVirtualFile(uint64 InPartitionSize)
 		return;
 	}
 	FullPath[result] = '\0'; // Ensure null-termination
+	#else
+	
+	char FullPath[PATH_MAX];
+	if(!realpath(VirtualFileName, FullPath)) {
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get full path for file: %s", VirtualFileName);
+		return;
+	}
+
+	#endif
 
 	FsLogger::LogFormat(FilesystemLogType::Info, "Created 1GB file at full path: %s", FullPath);
 
@@ -99,7 +115,14 @@ FilesystemReadResult FsFilesystemImpl::Read(uint64 Offset, uint64 Length, uint8*
 	if (File.fail())
 	{
 		char ErrorBuffer[256];
+		#if HAS_STRERROR_S
 		strerror_s(ErrorBuffer, 256, errno);
+		#elif HAS_STRERROR_R
+		strerror_r(errno, ErrorBuffer, 256);
+		#else
+		ErrorBuffer[0] = 0;
+		#warning "No acceptable strerror found!"
+		#endif
 		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to read %u bytes at offset %u. Reason %s", Length, Offset, &ErrorBuffer);
 		return FilesystemReadResult::Failed;
 	}
@@ -159,6 +182,7 @@ void FsLoggerImpl::OutputLog(const char* String, FilesystemLogType LogType)
 		break;
 	}
 
+#ifdef WIN32
 	// Set the color of the console output based on the log type
 	// Store the existing color
 	const HANDLE hConsole = GetStdHandle(STD_OUTPUT_HANDLE);
@@ -186,6 +210,24 @@ void FsLoggerImpl::OutputLog(const char* String, FilesystemLogType LogType)
 
 	// Restore the color
 	SetConsoleTextAttribute(hConsole, consoleColor);
+#else
+	switch(LogType)
+	{
+	case FilesystemLogType::Info:
+	case FilesystemLogType::Verbose:
+		std::cout << "\033[37m";
+		break;
+	case FilesystemLogType::Warning:
+		std::cout << "\033[33m";
+		break;
+	case FilesystemLogType::Error:
+	case FilesystemLogType::Fatal:
+		std::cout << "\033[31m";
+		break;
+	}
+
+	std::cout << "VFImpl: " << logTypeString << ": " << String << "\033[0m" << std::endl;
+#endif
 }
 
 void* FsMemoryAllocatorImpl::Allocate(uint64 Size)
