@@ -3,7 +3,7 @@
 
 void FsFormatter::Format(char* buffer, uint64 bufferSize, const char* format, ...)
 {
-	va_list args;
+	va_list args{};
 	va_start(args, format);
 
 	uint64 bufferIndex = 0;

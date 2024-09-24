@@ -83,18 +83,6 @@ protected:
 template<typename TElement>
 class FsBaseArray
 {
-public:
-	virtual ~FsBaseArray()
-	{
-
-	}
-
-	virtual void FillZeroed(uint64 NewCount) = 0;
-	virtual TElement* GetData() = 0;
-	virtual const TElement* GetData() const = 0;
-	virtual uint64 Length() const = 0;
-	virtual TElement& operator[](uint64 Index) = 0;
-	virtual const TElement& operator[](uint64 Index) const = 0;
 };
 
 template<typename TElement, typename TAllocator = FsArrayAllocator>
@@ -115,10 +103,6 @@ public:
 	FsBaseArrayImpl(FsBaseArrayImpl&& Other) noexcept
 	{
 		*this = FsMove(Other);
-	}
-
-	virtual ~FsBaseArrayImpl()
-	{
 	}
 
 	FsArrayIterator<TElement, FsBaseArrayImpl<TElement, TAllocator>> begin()
@@ -268,7 +252,7 @@ public:
 
 	// @brief Fills the array with zeroed elements
 	// @param NewCount The new count
-	virtual void FillZeroed(uint64 NewCount) override
+	void FillZeroed(uint64 NewCount)
 	{		
 		Reserve(NewCount);
 		FsMemory::Zero(GetData(), NewCount * sizeof(TElement));
@@ -309,14 +293,14 @@ public:
 	}
 
 	// @brief Returns the element at the specified index
-	virtual TElement& operator[](uint64 Index) override
+	TElement& operator[](uint64 Index)
 	{
 		fsCheck(Index < Count, "Index out of bounds");
 		return GetData()[Index];
 	}
 
 	// @brief Returns the element at the specified index
-	virtual const TElement& operator[](uint64 Index) const override
+	const TElement& operator[](uint64 Index) const
 	{
 		fsCheck(Index < Count, "Index out of bounds");
 		return GetData()[Index];
@@ -331,7 +315,7 @@ public:
 	}
 
 	// @brief Returns the number of elements in the array
-	virtual uint64 Length() const override
+	uint64 Length() const
 	{
 		return Count;
 	}
@@ -431,13 +415,13 @@ public:
 	}
 
 	// @brief Returns the data ptr
-	virtual TElement* GetData() override
+	TElement* GetData()
 	{
 		return static_cast<TElement*>(Allocator.GetData());
 	}
 
 	// @brief Returns the data ptr
-	virtual const TElement* GetData() const override
+	const TElement* GetData() const
 	{
 		return static_cast<const TElement*>(Allocator.GetData());
 	}
