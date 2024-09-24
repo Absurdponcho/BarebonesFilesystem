@@ -2,11 +2,13 @@
 #include "FsTypes.h"
 #include "FsArray.h"
 
+typedef FsBaseBitArrayImpl<FsArray<uint8>> FsInternalBitArray;
+
 // A bit stream that can be used to read and write bits to a buffer.
 class FsBitStream
 {
 public:
-	FsBitStream(FsBaseBitArray& InBuffer)
+	FsBitStream(FsInternalBitArray& InBuffer)
 		: Buffer(&InBuffer)
 	{}
 
@@ -50,7 +52,7 @@ public:
 	virtual bool IsWriting() const = 0;
 
 protected:
-	FsBaseBitArray* Buffer;
+	FsInternalBitArray* Buffer;
 };
 
 class FsBitReader : public FsBitStream
@@ -59,7 +61,7 @@ public:
 	using Super = FsBitStream;
 	using Super::operator<<;
 
-	FsBitReader(FsBaseBitArray& InBuffer)
+	FsBitReader(FsInternalBitArray& InBuffer)
 		: Super(InBuffer)
 	{}
 
@@ -117,7 +119,7 @@ public:
 	using Super = FsBitStream;
 	using Super::operator<<;
 
-	FsBitWriter(FsBitArray& InBuffer)
+	FsBitWriter(FsInternalBitArray& InBuffer)
 		: Super(InBuffer)
 	{}
 

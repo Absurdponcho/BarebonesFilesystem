@@ -10,11 +10,11 @@
 template<typename TElement>
 class FsBaseArray;
 
-template<typename TElement>
+template<typename TElement, typename TArray>
 class FsArrayIterator
 {
 public:
-	FsArrayIterator(uint64 InIndex, FsBaseArray<TElement>& InArray)
+	FsArrayIterator(uint64 InIndex, TArray& InArray)
 		: Index(InIndex), Array(InArray)
 	{
 	}
@@ -42,14 +42,14 @@ public:
 
 protected:
 	uint64 Index = 0;
-	FsBaseArray<TElement>& Array;
+	TArray& Array;
 };
 
-template<typename TElement>
+template<typename TElement, typename TArray>
 class FsConstArrayIterator
 {
 public:
-	FsConstArrayIterator(uint64 InIndex, const FsBaseArray<TElement>& InArray)
+	FsConstArrayIterator(uint64 InIndex, const TArray& InArray)
 		: Index(InIndex), Array(InArray)
 	{
 	}
@@ -77,7 +77,7 @@ public:
 
 protected:
 	uint64 Index = 0;
-	const FsBaseArray<TElement>& Array;
+	const TArray& Array;
 };
 
 template<typename TElement>
@@ -95,26 +95,6 @@ public:
 	virtual uint64 Length() const = 0;
 	virtual TElement& operator[](uint64 Index) = 0;
 	virtual const TElement& operator[](uint64 Index) const = 0;
-
-	FsArrayIterator<TElement> begin()
-	{
-		return FsArrayIterator<TElement>(0, *this);
-	}
-
-	FsArrayIterator<TElement> end()
-	{
-		return FsArrayIterator<TElement>(Length(), *this);
-	}
-
-	FsConstArrayIterator<TElement> begin() const
-	{
-		return FsConstArrayIterator<TElement>(0, *this);
-	}
-
-	FsConstArrayIterator<TElement> end() const
-	{
-		return FsConstArrayIterator<TElement>(Length(), *this);
-	}
 };
 
 template<typename TElement, typename TAllocator = FsArrayAllocator>
@@ -139,6 +119,26 @@ public:
 
 	virtual ~FsBaseArrayImpl()
 	{
+	}
+
+	FsArrayIterator<TElement, FsBaseArrayImpl<TElement, TAllocator>> begin()
+	{
+		return FsArrayIterator<TElement, FsBaseArrayImpl<TElement, TAllocator>>(0, *this);
+	}
+
+	FsArrayIterator<TElement, FsBaseArrayImpl<TElement, TAllocator>> end()
+	{
+		return FsArrayIterator<TElement, FsBaseArrayImpl<TElement, TAllocator>>(Length(), *this);
+	}
+
+	FsConstArrayIterator<TElement, FsBaseArrayImpl<TElement, TAllocator>> begin() const
+	{
+		return FsConstArrayIterator<TElement, FsBaseArrayImpl<TElement, TAllocator>>(0, *this);
+	}
+
+	FsConstArrayIterator<TElement, FsBaseArrayImpl<TElement, TAllocator>> end() const
+	{
+		return FsConstArrayIterator<TElement, FsBaseArrayImpl<TElement, TAllocator>>(Length(), *this);
 	}
 
 	// @brief Appends the contents of the other array to this array
@@ -532,25 +532,10 @@ public:
 
 class FsBaseBitArray
 {
-public:
-	virtual ~FsBaseBitArray() {}
-
-	virtual void AddBit(bool bValue) = 0;
-	virtual void AddByte(uint8 Byte) = 0;
-	virtual bool GetBit(uint64 Index) const = 0;
-	virtual void SetBit(uint64 Index, bool bValue) = 0;
-	virtual uint64 BitLength() const = 0;
-	virtual uint64 ByteLength() const = 0;
-	virtual void FillZeroed(uint64 NewCount) = 0;
-	virtual void AddZeroed(uint64 Amount) = 0;
-	virtual void Empty() = 0;
-	virtual const FsBaseArray<uint8>& GetInternalArray() const = 0;
-	virtual FsBaseArray<uint8>& GetInternalArray() = 0;
 };
 
 // @brief An array that works on bits as well as bytes
-// @tparam TElement The element type
-template<typename TAllocator = FsArrayAllocator>
+template<typename TInternalArray>
 class FsBaseBitArrayImpl : public FsBaseBitArray
 {
 public:
@@ -565,7 +550,7 @@ public:
 
 	// @brief Adds a bit to the array
 	// @param bValue The bit to add
-	virtual void AddBit(bool bValue) override
+	void AddBit(bool bValue)
 	{
 		if (BitCount % 8 == 0)
 		{
@@ -586,7 +571,7 @@ public:
 
 	// @brief Adds a byte to the array
 	// @param Byte The byte to add
-	virtual void AddByte(uint8 Byte) override
+	void AddByte(uint8 Byte)
 	{
 		for (uint64 i = 0; i < 8; i++)
 		{
@@ -598,7 +583,7 @@ public:
 	// @brief Returns the bit at the specified index
 	// @param Index The index to check
 	// @return True if the bit is set
-	virtual bool GetBit(uint64 Index) const override
+	bool GetBit(uint64 Index) const
 	{
 		fsCheck(Index < BitCount, "Index out of bounds");
 		return (InternalArray[Index / 8] & (1 << (Index % 8))) != 0;
@@ -607,7 +592,7 @@ public:
 	// @brief Sets the bit at the specified index
 	// @param Index The index to set
 	// @param bValue The value to set
-	virtual void SetBit(uint64 Index, bool bValue) override
+	void SetBit(uint64 Index, bool bValue)
 	{
 		fsCheck(Index < BitCount, "Index out of bounds");
 		if (bValue)
@@ -621,34 +606,34 @@ public:
 	}
 
 	// @brief Returns the number of bits in the array
-	virtual uint64 BitLength() const override
+	uint64 BitLength() const
 	{
 		return BitCount;
 	}
 
 	// @brief Returns the number of bytes in the array
-	virtual uint64 ByteLength() const override
+	uint64 ByteLength() const
 	{
 		return InternalArray.Length();
 	}
 
 	// @brief Gets the internal array
 	// @return The internal array
-	virtual const FsBaseArray<uint8>& GetInternalArray() const override
+	const TInternalArray& GetInternalArray() const
 	{
 		return InternalArray;
 	}
 
 	// @brief Gets the internal array
 	// @return The internal array
-	virtual FsBaseArray<uint8>& GetInternalArray() override
+	TInternalArray& GetInternalArray()
 	{
 		return InternalArray;
 	}
 
 	// @brief Fills the array with zeroed elements
 	// @param NewCount The new count
-	virtual void FillZeroed(uint64 NewCount) override
+	void FillZeroed(uint64 NewCount)
 	{
 		InternalArray.FillZeroed(NewCount);
 		BitCount = NewCount * 8;
@@ -656,13 +641,13 @@ public:
 
 	// @brief Adds the amount of zeroed elements to the array
 	// @param Amount The amount of elements to add
-	virtual void AddZeroed(uint64 Amount) override
+	void AddZeroed(uint64 Amount)
 	{
 		InternalArray.AddZeroed(Amount);
 		BitCount += Amount * 8;
 	}
 
-	virtual void Empty() override
+	void Empty()
 	{
 		InternalArray.Empty();
 		BitCount = 0;
@@ -692,11 +677,11 @@ public:
 	}
 
 protected:
-	FsBaseArrayImpl<uint8, TAllocator> InternalArray;
+	TInternalArray InternalArray;
 	uint64 BitCount = 0;
 };
 
-class FsBitArray : public FsBaseBitArrayImpl<FsDefaultArrayAllocator<uint8>>
+class FsBitArray : public FsBaseBitArrayImpl<FsArray<uint8>>
 {
 public:
 	using Super = FsBaseBitArrayImpl;
@@ -724,7 +709,7 @@ public:
 };
 
 template <uint64 FixedLength>
-class FsFixedLengthBitArray : public FsBaseBitArrayImpl<FsFixedLengthArrayAllocator<uint8, FixedLength>>
+class FsFixedLengthBitArray : public FsBaseBitArrayImpl<FsFixedLengthArray<uint8, FixedLength>>
 {
 public:
 	using Super = FsBitArray::FsBaseBitArrayImpl;
