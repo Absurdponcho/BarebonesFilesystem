@@ -8,7 +8,7 @@
 #include "config.h"
 #elif defined(_WIN32)
 #define HAS_STRERROR_S 1
-#define VC_EXTRALEAN
+#define WIN32_LEAN_AND_MEAN
 #include <windows.h>
 #endif
 
