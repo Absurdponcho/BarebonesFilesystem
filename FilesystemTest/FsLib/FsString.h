@@ -98,6 +98,15 @@ public:
 		Append(InString.GetData());
 	}
 
+	// @brief Appends an integer
+	// @param Value The integer to append
+	void Append(uint64 Value)
+	{
+		char Buffer[16];
+		FsFormatter::Format(Buffer, 16, "%i", Value);
+		Append(static_cast<const char*>(&Buffer[0]));
+	}
+
 	// @brief Appends a string to the current string
 	// @param InString The string to append
 	// @param Length The length of the string to append

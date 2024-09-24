@@ -92,6 +92,46 @@ int main()
 
 	FsLogger::LogFormat(FilesystemLogType::Info, "Read string: %s", ReadString.GetData());
 
+	// Add 10 directories to foo/bar
+	for (uint64 i = 0; i < 10; i++)
+	{
+		FsString DirName = FsString();
+		DirName.Append("Foo/Bar/Dir");
+		DirName.Append(i);
+		FsFilesystem.CreateDirectory(DirName);
+
+		if (i % 3 == 0)
+		{
+			FsString FileName = FsString();
+			FileName.Append(DirName);
+			FileName.Append("/Test");
+			FileName.Append(i);
+			FileName.Append(".txt");
+			FsFilesystem.CreateFile(FileName);
+		}
+	}
+
+	// Add more directories to different paths and names
+	for (uint64 i = 0; i < 10; i++)
+	{
+		FsString DirName = FsString();
+		DirName.Append("Foo/Baz");
+		DirName.Append(i);
+		FsFilesystem.CreateDirectory(DirName);
+
+		if (i % 3 == 0)
+		{
+			FsString FileName = FsString();
+			FileName.Append(DirName);
+			FileName.Append("/TestBaz");
+			FileName.Append(i);
+			FileName.Append(".txt");
+			FsFilesystem.CreateFile(FileName);
+		}
+	}
+
+	FsFilesystem.LogAllFiles();
+
 	return 0;
 
 }

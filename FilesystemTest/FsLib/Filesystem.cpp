@@ -932,7 +932,7 @@ bool FsFilesystem::CreateDirectory_Internal(const FsPath& DirectoryName, FsDirec
 			continue;
 		}
 
-		if (!SubDirectory.Contains("/"))
+		if (!DirectoryName.Contains("/"))
 		{
 			// Finished recursing, found a directory with the same name
 			return false;
@@ -958,6 +958,8 @@ bool FsFilesystem::CreateDirectory_Internal(const FsPath& DirectoryName, FsDirec
 			}
 			FsLogger::LogFormat(FilesystemLogType::Verbose, "Added file directory %s to directory %s at offset %u", SubDirectory.GetData(), SubDirectoryFile.FileName.GetData(), SubDirectoryFile.FileOffset);
 		}
+
+		return true;
 	}
 
 	// The directory does not exist, so we need to create it, along with a new file.
@@ -1084,4 +1086,45 @@ bool FsFilesystem::WriteSingleChunk(const FsBitArray& ChunkData, uint64 Absolute
 	}
 
 	return true;
+}
+
+void FsFilesystem::LogAllFiles()
+{
+	for (const FsFileDescriptor& File : RootDirectory.Files)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Info, "%s", File.FileName.GetData());
+		
+		// Load directory
+		if (File.bIsDirectory)
+		{
+			const FsDirectoryDescriptor Directory = ReadFileAsDirectory(File);
+			LogAllFiles_Internal(Directory, 1);
+		}
+	}
+}
+
+void FsFilesystem::LogAllFiles_Internal(const FsDirectoryDescriptor& CurrentDirectory, uint64 Depth)
+{
+	for (const FsFileDescriptor& File : CurrentDirectory.Files)
+	{
+		FsString Indent = "  ";
+		for (uint64 i = 0; i < Depth; i++)
+		{
+			if (i == Depth - 1)
+			{
+				Indent.Append("|--");
+				continue;
+			}
+			Indent.Append("  ");
+		}
+
+		FsLogger::LogFormat(FilesystemLogType::Info, "%s%s", Indent.GetData(), File.FileName.GetData());
+
+		// Load directory
+		if (File.bIsDirectory)
+		{
+			const FsDirectoryDescriptor Directory = ReadFileAsDirectory(File);
+			LogAllFiles_Internal(Directory, Depth + 1);
+		}
+	}
 }

@@ -6,7 +6,6 @@ class FsFormatter
 public:
 	static void Format(char* buffer, uint64 bufferSize, const char* format, ...);
 
-protected:
 	static void FormatString(char* buffer, uint64& bufferIndex, uint64 bufferSize, const char* str);
 	static void FormatInteger(char* buffer, uint64& bufferIndex, uint64 bufferSize, int64 num);
 	static void FormatUnsignedInteger(char* buffer, uint64& bufferIndex, uint64 bufferSize, uint64 num);

@@ -165,7 +165,11 @@ public:
 	bool GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescriptor& OutDirectoryDescriptor, FsFileDescriptor* OutDirectoryFile = nullptr);
 	bool DirectoryExists(const FsPath& InDirectoryName);
 
-//protected:
+	void LogAllFiles();
+
+protected:
+
+	void LogAllFiles_Internal(const FsDirectoryDescriptor& CurrentDirectory, uint64 Depth);
 
 	bool CreateDirectory_Internal(const FsPath& InDirectoryName, FsDirectoryDescriptor& CurrentDirectory, bool& bOutNeedsResave);
 	bool GetDirectory_Internal(const FsPath& InDirectoryName, const FsDirectoryDescriptor& CurrentDirectory, FsDirectoryDescriptor& OutDirectory, FsFileDescriptor* OutDirectoryFile);

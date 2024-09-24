@@ -3,6 +3,7 @@
 #include "FsLib/Filesystem.h"
 #include "FsLib/FsMemory.h"
 #include "FsLib/FsLogger.h"
+#include <fstream>
 
 class FsLoggerImpl : public FsLogger
 {
@@ -27,8 +28,12 @@ protected:
 	virtual FilesystemReadResult Read(uint64 Offset, uint64 Length, uint8* Destination) override;
 	virtual FilesystemWriteResult Write(uint64 Offset, uint64 Length, const uint8* Source) override;
 
+	void CreateVirtualFile(uint64 InPartitionSize);
+
 	// The name of the file that we will use for the FsFilesystem implementation
 	const char* VirtualFileName = "VirtualFileSystem.dat";
+
+	std::fstream File;
 
 };
 
