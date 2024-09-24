@@ -14,8 +14,6 @@ FsMemoryAllocator::FsMemoryAllocator()
 	}
 }
 
-uint64 FsFilesystem::NextFileHandleUID = 1;
-
 FsPath FsPath::NormalizePath() const
 {
 	// Change slashes to forward slashes
@@ -89,61 +87,9 @@ FsPath FsPath::GetSubPath() const
 	return Substring(FirstSlashIndex + 1, Length() - FirstSlashIndex - 1);
 }
 
-void FsFileHandle::ResetHandle()
-{
-	Close();
-
-	UID = 0;
-	Flags = EFileHandleFlags::None;
-}
-
-FsFileHandle::FsFileHandle(FsFilesystem* InFilesystem, uint64 InUID, EFileHandleFlags InFlags)
-{
-	OwningFilesystem = InFilesystem;
-
-	UID = InUID;
-
-	Flags = InFlags;
-}
-
-FsFileHandle::~FsFileHandle()
-{
-	Close();
-}
-
-void FsFileHandle::Close()
-{
-	fsCheck(OwningFilesystem, "Cannot close without an owning filesystem!");
-	OwningFilesystem->FileHandleClosed(UID);
-	ResetHandle();
-}
-
-bool FsFileHandle::IsOpen()
-{
-	return false;
-}
-
 void FsFilesystem::Initialize()
 {
 	LoadOrCreateFilesystemHeader();
-}
-
-void FsFilesystem::FileHandleClosed(uint64 HandleUID)
-{
-	fsCheck(HandleUID > 0, "Attempted to close an invalid file handle");
-
-	// Find the file handle
-	for (uint64 i = 0; i < OpenFileHandles.Length(); i++)
-	{
-		if (OpenFileHandles[i].UID == HandleUID)
-		{
-			FsLogger::LogFormat(FilesystemLogType::Verbose, "File handle %u closed. File %s", HandleUID, OpenFileHandles[i].FileName.GetData());
-			OpenFileHandles.RemoveAt(i);
-			return;
-		}
-	}
-
-	fsCheck(false, "Failed to close a file handle");
 }
 
 bool FsFilesystem::CreateFile(const FsPath& InFileName)
@@ -328,7 +274,8 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 		}
 
 		// Get the amount of space that is free in the last chunk
-		const uint64 FreeSpaceInLastChunk = GetFreeAllocatedSpaceInFileChunks(File, &AllChunks);
+		// TODO: implement writing to part of a file
+		//const uint64 FreeSpaceInLastChunk = GetFreeAllocatedSpaceInFileChunks(File, &AllChunks);
 		return true;
 	}
 
@@ -387,7 +334,6 @@ bool FsFilesystem::ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Dest
 		uint64 CurrentOffset = Offset;
 		uint64 CurrentAbsoluteOffset = File.FileOffset;
 		uint64 CurrentChunkIndex = 0;
-		uint64 BytesRemainingToRead = Length;
 
 		while (BytesRead < Length && CurrentAbsoluteOffset != 0 && AllChunks.IsValidIndex(CurrentChunkIndex))
 		{
@@ -1127,4 +1073,24 @@ void FsFilesystem::LogAllFiles_Internal(const FsDirectoryDescriptor& CurrentDire
 			LogAllFiles_Internal(Directory, Depth + 1);
 		}
 	}
+}
+
+bool FsFilesystem::DeleteDirectory(const FsPath& DirectoryName)
+{
+	return false;
+}
+
+bool FsFilesystem::DeleteFile(const FsPath& FileName)
+{
+	return false;
+}
+
+bool FsFilesystem::MoveFile(const FsPath& SourceFileName, const FsPath& DestinationFileName)
+{
+	return false;
+}
+
+bool FsFilesystem::CopyFile(const FsPath& SourceFileName, const FsPath& DestinationFileName)
+{
+	return false;
 }

@@ -5,10 +5,8 @@
 class FsBitStream;
 class FsFilesystem;
 struct FsDirectoryDescriptor;
-struct FsOpenFileHandle;
 struct FsFileDescriptor;
 
-typedef FsArray<FsOpenFileHandle> FsFileHandleArray;
 typedef FsArray<FsFileDescriptor> FsFileArray;
 typedef FsString FsFileNameString;
 typedef FsArray<uint64> FsBlockArray;
@@ -102,43 +100,6 @@ struct FsFilesystemHeader
 	void Serialize(FsBitStream& BitStream);
 };
 
-class FsFileHandle
-{
-public:
-	FsFileHandle(FsFilesystem* InFilesystem, uint64 InUID, EFileHandleFlags InFlags);
-
-	~FsFileHandle();
-
-	bool Read(uint8* Destination, uint64 Length);
-	bool Write(const uint8* Source, uint64 Length);
-	uint64 Tell();
-	bool Seek(uint64 Offset);
-	bool SeekFromEnd(uint64 Offset);
-	bool Flush();
-	void Close();
-	uint64 Size();
-	bool IsOpen();
-
-protected:
-
-	friend class FsFilesystem;
-	FsFilesystem* OwningFilesystem;
-
-	// Closes the file handle and resets the handle.
-	void ResetHandle();
-
-	uint64 UID;
-	EFileHandleFlags Flags;
-};
-
-struct FsOpenFileHandle
-{
-public:	
-	uint64 UID = 0;
-	FsPath FileName;
-	EFileHandleFlags Flags = EFileHandleFlags::None;
-};
-
 class FsFilesystem
 {
 public:
@@ -158,10 +119,10 @@ public:
 	bool CreateDirectory(const FsPath& InDirectoryName);
 	bool WriteToFile(const FsPath& InPath, const uint8* Source, uint64 Length);
 	bool ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Destination, uint64 Length);
-	void DeleteDirectory(const FsPath& DirectoryName);
-	void DeleteFile(const FsPath& FileName);
-	void MoveFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
-	void CopyFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
+	bool DeleteDirectory(const FsPath& DirectoryName);
+	bool DeleteFile(const FsPath& FileName);
+	bool MoveFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
+	bool CopyFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
 	bool GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescriptor& OutDirectoryDescriptor, FsFileDescriptor* OutDirectoryFile = nullptr);
 	bool DirectoryExists(const FsPath& InDirectoryName);
 
@@ -186,12 +147,10 @@ protected:
 	virtual FilesystemReadResult Read(uint64 Offset, uint64 Length, uint8* Destination) = 0;
 	virtual FilesystemWriteResult Write(uint64 Offset, uint64 Length, const uint8* Source) = 0;
 
-	friend class FsFileHandle;
 	friend class CheckImplementer;
 	friend class FsLogger;
 	friend class FsMemory;
 
-	void FileHandleClosed(uint64 HandleUID);
 	void LoadOrCreateFilesystemHeader();
 	void SaveFilesystemHeader(const FsFilesystemHeader& InHeader);
 	void SetBlocksInUse(const FsBlockArray& BlockIndices, bool bInUse);
@@ -201,10 +160,6 @@ protected:
 
 	FsDirectoryDescriptor ReadFileAsDirectory(const FsFileDescriptor& FileDescriptor);
 	bool SaveDirectory(const FsDirectoryDescriptor& Directory, uint64 AbsoluteOffset);
-
-	static uint64 NextFileHandleUID;
-	
-	FsFileHandleArray OpenFileHandles;
 
 	FsDirectoryDescriptor RootDirectory{};
 

@@ -25,7 +25,7 @@ public:
 	virtual void Empty() = 0;
 };
 
-static char FsToLower(char Character)
+static inline char FsToLower(char Character)
 {
 	if (Character >= 'A' && Character <= 'Z')
 	{
@@ -34,7 +34,7 @@ static char FsToLower(char Character)
 	return Character;
 }
 
-static char FsToUpper(char Character)
+static inline char FsToUpper(char Character)
 {
 	if (Character >= 'a' && Character <= 'z')
 	{

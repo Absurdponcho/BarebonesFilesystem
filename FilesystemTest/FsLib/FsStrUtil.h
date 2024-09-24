@@ -2,7 +2,7 @@
 #include "FsTypes.h"
 
 // strcpy FsFunction
-static void FsStrCpy(char* Destination, const char* Source)
+static inline void FsStrCpy(char* Destination, const char* Source)
 {
 	while (*Source)
 	{
@@ -14,7 +14,7 @@ static void FsStrCpy(char* Destination, const char* Source)
 }
 
 // strlen FsFunction
-static uint64 FsStrLen(const char* String)
+static inline uint64 FsStrLen(const char* String)
 {
 	uint64 Length = 0;
 	while (*String)
@@ -26,7 +26,7 @@ static uint64 FsStrLen(const char* String)
 }
 
 // strcmp FsFunction
-static uint64 FsStrCmp(const char* String1, const char* String2)
+static inline uint64 FsStrCmp(const char* String1, const char* String2)
 {
 	while (*String1 && *String2 && *String1 == *String2)
 	{
