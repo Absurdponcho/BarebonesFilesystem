@@ -18,7 +18,34 @@ public:
 	virtual void operator<<(bool& Value) = 0;
 	virtual void operator<<(uint8& Value) = 0;
 	virtual void operator<<(char& Value) = 0;
-	virtual void operator<<(FsBaseString& Value) = 0;
+
+	template<typename TString = FsBaseString>
+	void operator<<(TString& Value)
+	{
+		if (IsReading())
+		{
+			Value.Empty();
+			uint64 Length = 0;
+			*this << Length;
+			for (uint64 i = 0; i < Length; i++)
+			{
+				char Char = 0;
+				*this << Char;
+				Value.Append(Char);
+			}
+		}
+		else
+		{
+			uint64 Length = Value.Length();
+			*this << Length;
+			for (uint64 i = 0; i < Length; i++)
+			{
+				char Char = Value[i];
+				*this << Char;
+			}
+		}
+	}
+
 	virtual bool IsReading() const = 0;
 	virtual bool IsWriting() const = 0;
 
@@ -30,6 +57,7 @@ class FsBitReader : public FsBitStream
 {
 public:
 	using Super = FsBitStream;
+	using Super::operator<<;
 
 	FsBitReader(FsBaseBitArray& InBuffer)
 		: Super(InBuffer)
@@ -69,19 +97,6 @@ public:
 		BitIndex += 8;
 	}
 
-	virtual void operator<<(FsBaseString& Value) override
-	{
-		Value.Empty();
-		uint64 Length = 0;
-		*this << Length;
-		for (uint64 i = 0; i < Length; i++)
-		{
-			char Char = 0;
-			*this << Char;
-			Value.Append(Char);
-		}
-	}
-
 	virtual bool IsReading() const override
 	{
 		return true;
@@ -100,6 +115,7 @@ class FsBitWriter : public FsBitStream
 {
 public:
 	using Super = FsBitStream;
+	using Super::operator<<;
 
 	FsBitWriter(FsBitArray& InBuffer)
 		: Super(InBuffer)
@@ -131,18 +147,6 @@ public:
 		for (uint64 i = 0; i < 8; i++)
 		{
 			Buffer->AddBit(Value & (1 << i));
-		}
-	}
-
-	virtual void operator<<(FsBaseString& Value) override
-	{
-		uint64 Length = Value.Length();
-		const char* Data = Value.GetData();
-		*this << Length;
-		for (uint64 i = 0; i < Length; i++)
-		{
-			char Char = Data[i];
-			*this << Char;
 		}
 	}
 

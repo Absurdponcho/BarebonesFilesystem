@@ -5,24 +5,6 @@
 
 class FsBaseString
 {
-public:
-	virtual ~FsBaseString()
-	{
-
-	}
-
-	FsBaseString()
-	{
-
-	}
-
-	virtual const char* GetData() const = 0;
-	virtual char* GetData() = 0;
-	virtual uint64 Length() const = 0;
-	virtual void Append(char InChar) = 0;
-	virtual void Append(const char* InString) = 0;
-	virtual void Append(const char* InString, uint64 Length) = 0;
-	virtual void Empty() = 0;
 };
 
 static inline char FsToLower(char Character)
@@ -70,11 +52,9 @@ public:
 		Append(InString->GetData());
 	}
 
-	virtual ~FsBaseStringImpl() {}
-
 	// @brief Appends a character to the current string
 	// @param InString The string to append
-	virtual void Append(const char* InString) override
+	void Append(const char* InString)
 	{
 		// Remove the null terminator
 		if (!Data.IsEmpty())
@@ -110,7 +90,7 @@ public:
 	// @brief Appends a string to the current string
 	// @param InString The string to append
 	// @param Length The length of the string to append
-	virtual void Append(const char* InString, uint64 Length) override
+	void Append(const char* InString, uint64 Length)
 	{
 		// Remove the null terminator
 		if (!Data.IsEmpty())
@@ -131,7 +111,7 @@ public:
 
 	// @brief Appends a character to the current string
 	// @param Character The character to append
-	virtual void Append(char Character) override
+	void Append(char Character)
 	{
 		// Remove the null terminator
 		if (!Data.IsEmpty())
@@ -311,7 +291,7 @@ public:
 	}
 
 	// @brief Gets the length of the string (excluding the null terminator)
-	virtual uint64 Length() const override
+	uint64 Length() const
 	{
 		if (Data.IsEmpty())
 		{
@@ -321,12 +301,12 @@ public:
 		return Data.Length() - 1;
 	}
 
-	virtual const char* GetData() const override
+	const char* GetData() const
 	{
 		return Data.GetData();
 	}
 
-	virtual char* GetData() override
+	char* GetData()
 	{
 		return Data.GetData();
 	}
@@ -341,7 +321,7 @@ public:
 		return Data[Index];
 	}
 
-	virtual void Empty() override
+	void Empty()
 	{
 		Data.Empty();
 	}
@@ -390,7 +370,7 @@ public:
 	template<typename TResult = FsBaseStringImpl>
 	NO_DISCARD TResult ToLower() const
 	{
-		TResult Result;
+		TResult Result{};
 		for (uint64 i = 0; i < Length(); i++)
 		{
 			Result.Append(FsToLower(Data[i]));
@@ -403,7 +383,7 @@ public:
 	template<typename TResult = FsBaseStringImpl>
 	NO_DISCARD TResult ToUpper() const
 	{
-		TResult Result;
+		TResult Result{};
 		for (uint64 i = 0; i < Length(); i++)
 		{
 			Result.Append(FsToUpper(Data[i]));
@@ -430,7 +410,7 @@ public:
 	template<typename TResult = FsBaseStringImpl>
 	NO_DISCARD TResult Replace(const char* InString, const char* Replacement, bool bCaseSensitive = false) const
 	{
-		TResult Result;
+		TResult Result{};
 		uint64 FoundIndex = 0;
 		uint64 StartIndex = 0;
 		uint64 InStringLength = FsStrLen(InString);
@@ -573,7 +553,7 @@ public:
 	template<typename TResult = FsBaseStringImpl>
 	NO_DISCARD TResult Substring(uint64 StartIndex, uint64 Length) const
 	{
-		TResult Result;
+		TResult Result{};
 		for (uint64 i = StartIndex; i < StartIndex + Length; i++)
 		{
 			Result.Append(Data[i]);

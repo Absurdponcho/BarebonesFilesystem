@@ -136,7 +136,7 @@ FilesystemWriteResult FsFilesystemImpl::Write(uint64 Offset, uint64 Length, cons
 
 void FsLoggerImpl::OutputLog(const char* String, FilesystemLogType LogType)
 {
-	const char* logTypeString = "Unknown";
+	const char* logTypeString = nullptr;
 	switch (LogType)
 	{
 	case FilesystemLogType::Info:
@@ -153,6 +153,9 @@ void FsLoggerImpl::OutputLog(const char* String, FilesystemLogType LogType)
 		break;
 	case FilesystemLogType::Fatal:
 		logTypeString = "  Fatal";
+		break;
+	default:
+		logTypeString = "Unknown";
 		break;
 	}
 
