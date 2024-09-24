@@ -67,14 +67,13 @@ int main()
     std::cout << "Hello World!\n";
 
 	FsLoggerImpl Logger = FsLoggerImpl();
+	Logger.SetShouldLogVerbose(false);
 	FsMemoryAllocatorImpl Allocator = FsMemoryAllocatorImpl();
 
 	// Make a test fs with a 1GB partition and 1KB block size
 	FsFilesystemImpl FsFilesystem = FsFilesystemImpl(1024ull * 1024ull * 1024ull, 1024);
 
 	FsFilesystem.Initialize();
-
-	FsLogger::GetInstance()->SetShouldLogVerbose(false);
 
 	const char* DirPath = "Foo/Bar/Baz";
 	FsFilesystem.CreateDirectory(DirPath);
