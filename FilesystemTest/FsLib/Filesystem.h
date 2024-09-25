@@ -117,7 +117,7 @@ public:
 	bool CreateFile(const FsPath& FileName);
 	bool FileExists(const FsPath& InFileName);
 	bool CreateDirectory(const FsPath& InDirectoryName);
-	bool WriteToFile(const FsPath& InPath, const uint8* Source, uint64 Length);
+	bool WriteToFile(const FsPath& InPath, const uint8* Source, uint64 InOffset, uint64 InLength);
 	bool ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Destination, uint64 Length);
 	bool DeleteDirectory(const FsPath& DirectoryName);
 	bool DeleteFile(const FsPath& FileName);
@@ -141,6 +141,8 @@ protected:
 
 	// Compares the file size to the amount of blocks allocated to the file.
 	uint64 GetFreeAllocatedSpaceInFileChunks(const FsFileDescriptor& FileDescriptor, const FsArray<FsFileChunkHeader>* OptionalInChunks);
+
+	uint64 GetAllocatedSpaceInFileChunks(const FsArray<FsFileChunkHeader>& InChunks);
 
 	bool WriteEntireFile_Internal(FsFileDescriptor& FileDescriptor, const uint8* Source, uint64 Length);
 

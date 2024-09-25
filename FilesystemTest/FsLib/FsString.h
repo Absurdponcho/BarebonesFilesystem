@@ -357,6 +357,8 @@ public:
 			{
 				if (FsToLower(Data[Index]) != FsToLower(InString[Index]))
 				{
+					// Log the character that is not matching
+					FsLogger::LogFormat(FilesystemLogType::Info, "Character mismatch: %c != %c", Data[Index], InString[Index]);
 					return false;
 				}
 			}
@@ -624,7 +626,7 @@ public:
 	{
 		for (uint64 i = 0; i < Amount; i++)
 		{
-			Data.Add('\0');
+			Append('0');
 		}
 	}
 

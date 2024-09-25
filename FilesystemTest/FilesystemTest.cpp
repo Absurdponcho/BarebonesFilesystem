@@ -80,52 +80,33 @@ int main()
 	const char* TestFileName = "Foo/Bar/Baz/Test.txt";
 	FsFilesystem.CreateFile(TestFileName);
 
-	FsFilesystem.WriteToFile(TestFileName, reinterpret_cast<const uint8*>("Hello, World!"), 14);
-
-	FsLogger::LogFormat(FilesystemLogType::Info, "Wrote string: Hello, World!");
-
-	FsString ReadString = FsString();
-	ReadString.AddZeroed(14);
-	FsFilesystem.ReadFromFile(TestFileName, 0, reinterpret_cast<uint8*>(ReadString.GetData()), 14);
-
-	FsLogger::LogFormat(FilesystemLogType::Info, "Read string: %s", ReadString.GetData());
-
-	// Add 10 directories to foo/bar
-	for (uint64 i = 0; i < 10; i++)
+	FsString TestString;
+	for (uint64 i = 0; i < 100000; i++)
 	{
-		FsString DirName = FsString();
-		DirName.Append("Foo/Bar/Dir");
-		DirName.Append(i);
-		FsFilesystem.CreateDirectory(DirName);
-
-		if (i % 3 == 0)
-		{
-			FsString FileName = FsString();
-			FileName.Append(DirName);
-			FileName.Append("/Test");
-			FileName.Append(i);
-			FileName.Append(".txt");
-			FsFilesystem.CreateFile(FileName);
-		}
+		TestString.Append("123456789-");
 	}
 
-	// Add more directories to different paths and names
-	for (uint64 i = 0; i < 10; i++)
-	{
-		FsString DirName = FsString();
-		DirName.Append("Foo/Baz");
-		DirName.Append(i);
-		FsFilesystem.CreateDirectory(DirName);
+	const uint64 FileSize = TestString.Length() + 1;
 
-		if (i % 3 == 0)
+	FsFilesystem.WriteToFile(TestFileName, reinterpret_cast<const uint8*>(TestString.GetData()), 0, FileSize);
+
+	FsString ReadString = FsString();
+	ReadString.AddZeroed(FileSize - 1);
+	FsFilesystem.ReadFromFile(TestFileName, 0, reinterpret_cast<uint8*>(ReadString.GetData()), FileSize);
+
+	// check if the read string is the same as the written string
+	if (TestString == ReadString)
+	{
+		FsLogger::Log(FilesystemLogType::Info, "Strings match!");
+	}
+	else
+	{
+		FsLogger::Log(FilesystemLogType::Error, "Strings do not match!");
+		while (ReadString.Contains("123456789-"))
 		{
-			FsString FileName = FsString();
-			FileName.Append(DirName);
-			FileName.Append("/TestBaz");
-			FileName.Append(i);
-			FileName.Append(".txt");
-			FsFilesystem.CreateFile(FileName);
+			ReadString = ReadString.Replace("123456789-", "");
 		}
+		FsLogger::LogFormat(FilesystemLogType::Error, "Extra characters: %s", ReadString.GetData());
 	}
 
 	FsFilesystem.LogAllFiles();
