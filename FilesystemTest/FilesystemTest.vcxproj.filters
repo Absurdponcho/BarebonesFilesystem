@@ -39,6 +39,9 @@
     <ClCompile Include="FsLib\FsLogger.cpp">
       <Filter>Source Files</Filter>
     </ClCompile>
+    <ClCompile Include="FsLib\FsTests.cpp">
+      <Filter>Source Files</Filter>
+    </ClCompile>
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="FsLib\Filesystem.h">
@@ -84,6 +87,9 @@
       <Filter>Header Files</Filter>
     </ClInclude>
     <ClInclude Include="FsLib\FsNew.h">
+      <Filter>Header Files</Filter>
+    </ClInclude>
+    <ClInclude Include="FsLib\FsTests.h">
       <Filter>Header Files</Filter>
     </ClInclude>
   </ItemGroup>

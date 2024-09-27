@@ -130,7 +130,7 @@ bool FsFilesystem::CreateFile_Internal(const FsPath& FileName, FsDirectoryDescri
 		if (!FileName.Contains("/"))
 		{
 			// Finished recursing, found a file with the same name
-			FsLogger::LogFormat(FilesystemLogType::Error, "File %s already exists", FileName.GetData());
+			FsLogger::LogFormat(FilesystemLogType::Verbose, "File %s already exists", FileName.GetData());
 			return false;
 		}
 	}
@@ -1033,7 +1033,7 @@ bool FsFilesystem::CreateDirectory(const FsPath& InDirectoryName)
 	bool bNeedsResave = false;
 	if (!CreateDirectory_Internal(NormalizedPath, RootDirectory, bNeedsResave))
 	{
-		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to create directory %s", NormalizedPath.GetData());
+		FsLogger::LogFormat(FilesystemLogType::Verbose, "Failed to create directory %s", NormalizedPath.GetData());
 		return false;
 	}
 

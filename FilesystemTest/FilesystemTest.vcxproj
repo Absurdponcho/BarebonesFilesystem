@@ -138,6 +138,7 @@
     <ClCompile Include="FsLib\FsFormat.cpp" />
     <ClCompile Include="FsLib\FsLogger.cpp" />
     <ClCompile Include="FsLib\FsMemory.cpp" />
+    <ClCompile Include="FsLib\FsTests.cpp" />
   </ItemGroup>
   <ItemGroup>
     <ClInclude Include="FilesystemImplementation.h" />
@@ -153,6 +154,7 @@
     <ClInclude Include="FsLib\FsNew.h" />
     <ClInclude Include="FsLib\FsString.h" />
     <ClInclude Include="FsLib\FsStrUtil.h" />
+    <ClInclude Include="FsLib\FsTests.h" />
     <ClInclude Include="FsLib\FsTypes.h" />
     <ClInclude Include="FsLib\FsTypeTraits.h" />
   </ItemGroup>
