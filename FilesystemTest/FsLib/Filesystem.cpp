@@ -261,10 +261,18 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 
 		if (MaxWriteLength > AllocatedSpace)
 		{
+			const uint64 ExtraSpaceNeeded = MaxWriteLength - AllocatedSpace;
 			// We need to allocate more space for the file
-			const uint64 AdditionalBlocks = (MaxWriteLength - AllocatedSpace) % BlockSize == 0 ? (MaxWriteLength - AllocatedSpace) / BlockSize : (MaxWriteLength - AllocatedSpace) / BlockSize + 1;
+			uint64 AdditionalBlocks = ExtraSpaceNeeded % BlockSize == 0 ? ExtraSpaceNeeded / BlockSize : ExtraSpaceNeeded / BlockSize + 1;
 
-			const FsBlockArray NewBlocks = GetFreeBlocks(AdditionalBlocks);
+			// Consider that each block will have a chunk header, so allocate extra blocks to account for that.
+			const uint64 ContentSize = BlockSize - sizeof(FsFileChunkHeader);
+			while (AdditionalBlocks * ContentSize < MaxWriteLength)
+			{
+				AdditionalBlocks++;
+			}
+
+			FsBlockArray NewBlocks = GetFreeBlocks(AdditionalBlocks);
 			if (NewBlocks.Length() != AdditionalBlocks)
 			{
 				FsLogger::LogFormat(FilesystemLogType::Error, "Failed to find %u free blocks for file %s", AdditionalBlocks, NormalizedPath.GetData());
@@ -384,7 +392,7 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 				}
 
 				// Log chunk header				
-				FsLogger::LogFormat(FilesystemLogType::Info, "Wrote chunk at %u with %u blocks pointing to next chunk at %u [%u]", WriteOffset, Chunk.Blocks, Chunk.NextBlockIndex, BlockIndexToAbsoluteOffset(Chunk.NextBlockIndex));
+				//FsLogger::LogFormat(FilesystemLogType::Info, "Wrote chunk at %u with %u blocks pointing to next chunk at %u [%u]", WriteOffset, Chunk.Blocks, Chunk.NextBlockIndex, BlockIndexToAbsoluteOffset(Chunk.NextBlockIndex));
 			}
 
 			CurrentAbsoluteOffset = BlockIndexToAbsoluteOffset(Chunk.NextBlockIndex);
@@ -464,7 +472,7 @@ bool FsFilesystem::ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Dest
 			const FsFileChunkHeader& CurrentChunk = AllChunks[CurrentChunkIndex];
 
 			// Log the chunk header
-			FsLogger::LogFormat(FilesystemLogType::Info, "Read chunk at %u with %u blocks pointing to next chunk at %u [%u]", CurrentAbsoluteOffset, CurrentChunk.Blocks, CurrentChunk.NextBlockIndex, BlockIndexToAbsoluteOffset(CurrentChunk.NextBlockIndex));
+			//FsLogger::LogFormat(FilesystemLogType::Info, "Read chunk at %u with %u blocks pointing to next chunk at %u [%u]", CurrentAbsoluteOffset, CurrentChunk.Blocks, CurrentChunk.NextBlockIndex, BlockIndexToAbsoluteOffset(CurrentChunk.NextBlockIndex));
 
 			CurrentChunkIndex++;
 			
@@ -639,7 +647,9 @@ FsArray<FsFileChunkHeader> FsFilesystem::GetAllChunksForFile(const FsFileDescrip
 
 		AllBlocks.Add(NextChunkHeader);
 		NextBlockIndex = NextChunkHeader.NextBlockIndex;
-		CurrentBlockLength += BlockSize;
+
+		const uint64 ContentSize = BlockSize - sizeof(FsFileChunkHeader);
+		CurrentBlockLength += ContentSize;
 	}
 
 	return AllBlocks;

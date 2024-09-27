@@ -81,7 +81,7 @@ int main()
 	FsFilesystem.CreateFile(TestFileName);
 
 	FsString TestString;
-	for (uint64 i = 0; i < 100000; i++)
+	for (uint64 i = 0; i < 1000000; i++)
 	{
 		TestString.Append("123456789-");
 	}
