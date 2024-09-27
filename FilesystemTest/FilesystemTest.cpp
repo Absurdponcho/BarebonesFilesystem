@@ -8,8 +8,6 @@
 
 int main()
 {
-    std::cout << "Hello World!\n";
-
 	FsLoggerImpl Logger = FsLoggerImpl();
 	Logger.SetShouldLogVerbose(false);
 	FsMemoryAllocatorImpl Allocator = FsMemoryAllocatorImpl();
