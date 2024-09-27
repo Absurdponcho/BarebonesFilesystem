@@ -31,6 +31,11 @@ FsPath FsPath::NormalizePath() const
 		Result.RemoveAt(Result.Length() - 1);
 	}
 
+	while (Result.StartsWith(FsString("/")))
+	{
+		Result = Result.GetSubPath();
+	}
+
 	// Make lower case
 	//Result = Result.ToLower<FsPath>();
 
@@ -204,7 +209,7 @@ bool FsFilesystem::FileExists(const FsPath& InFileName)
 
 bool FsFilesystem::GetFile(const FsPath& InFileName, FsFileDescriptor& OutFileDescriptor)
 {
-	const FsPath NormalizedPath = InFileName.NormalizePath();
+	FsPath NormalizedPath = InFileName.NormalizePath();
 
 	if (!NormalizedPath.Contains("/"))
 	{
@@ -476,6 +481,11 @@ bool FsFilesystem::ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Dest
 		// Check the read is within the file length
 		if (Offset + Length > File.FileSize)
 		{
+			Length = File.FileSize - Offset;
+		}
+
+		if (Offset + Length > File.FileSize)
+		{
 			FsLogger::LogFormat(FilesystemLogType::Error, "Read is out of bounds for file %s", NormalizedPath.GetData());
 			return false;
 		}
@@ -526,6 +536,9 @@ bool FsFilesystem::ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Dest
 					Destination[BytesRead] = ChunkBuffer[ChunkByteIndex];
 					BytesRead++;
 				}
+
+				// Log the character that is read
+				FsLogger::LogFormat(FilesystemLogType::Info, "Read character %c at %u", ChunkBuffer[ChunkByteIndex], CurrentOffset);
 
 				CurrentOffset++;
 				if (BytesRead >= Length)
@@ -967,12 +980,19 @@ bool FsFilesystem::GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescri
 {
 	if (InDirectoryName.Contains("."))
 	{
-		FsLogger::LogFormat(FilesystemLogType::Error, "Cannot get directory with a file extension: %s", InDirectoryName.GetData());
 		return false;
 	}
 
 	FsPath NormalizedPath = InDirectoryName.NormalizePath();
+
 	FsLogger::LogFormat(FilesystemLogType::Verbose, "Getting directory for %s", NormalizedPath.GetData());
+	if (NormalizedPath.IsEmpty() || NormalizedPath == FsPath("/"))
+	{
+		// Root directory
+		OutDirectoryDescriptor = RootDirectory;
+		return true;
+	}
+
 
 	return GetDirectory_Internal(NormalizedPath, RootDirectory, OutDirectoryDescriptor, OutDirectoryFile);
 }

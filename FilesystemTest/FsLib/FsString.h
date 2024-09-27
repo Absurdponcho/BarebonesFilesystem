@@ -495,6 +495,11 @@ public:
 	// @return True if the string ends with InString
 	bool EndsWith(const char* InString) const
 	{
+		if (IsEmpty())
+		{
+			return false;
+		}
+
 		uint64 InStringLength = FsStrLen(InString);
 		if (Data.Length() < InStringLength)
 		{
@@ -503,7 +508,12 @@ public:
 
 		for (uint64 i = 0; i < InStringLength; i++)
 		{
-			if (Data[Length() - InStringLength + i] != InString[i])
+			const uint64 NextIndex = Length() - InStringLength + i;
+			if (!Data.IsValidIndex(NextIndex))
+			{
+				return false;
+			}
+			if (Data[NextIndex] != InString[i])
 			{
 				return false;
 			}
@@ -518,6 +528,11 @@ public:
 	template<typename TOther = FsBaseStringImpl>
 	bool StartsWith(const TOther& InString) const
 	{
+		if (IsEmpty())
+		{
+			return false;
+		}
+		
 		if (Data.Length() < InString.Length())
 		{
 			return false;

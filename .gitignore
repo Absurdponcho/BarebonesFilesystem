@@ -37,3 +37,4 @@ build/
 /FilesystemTest/x64
 /x64
 VirtualFileSystem.dat
+/.vs
