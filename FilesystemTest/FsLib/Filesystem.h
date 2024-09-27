@@ -128,6 +128,10 @@ public:
 
 	void LogAllFiles();
 
+	// Formats the given bytes into a human readable string.
+	// The value that is returned will not be valid after the next call to this function, so it must be copied if it needs to be kept.
+	static const char* GetCompressedBytesString(uint64 Bytes);
+
 protected:
 
 	void LogAllFiles_Internal(const FsDirectoryDescriptor& CurrentDirectory, uint64 Depth);

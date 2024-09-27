@@ -61,19 +61,8 @@ void TestBitStream()
 	FsLogger::LogFormat(FilesystemLogType::Info, "Original string: %s, Read string: %s", TestString.GetData(), ReadString.GetData());
 }
 
-int main()
+void LargeFileTest(FsFilesystemImpl& FsFilesystem)
 {
-    std::cout << "Hello World!\n";
-
-	FsLoggerImpl Logger = FsLoggerImpl();
-	Logger.SetShouldLogVerbose(false);
-	FsMemoryAllocatorImpl Allocator = FsMemoryAllocatorImpl();
-
-	// Make a test fs with a 1GB partition and 1KB block size
-	FsFilesystemImpl FsFilesystem = FsFilesystemImpl(1024ull * 1024ull * 1024ull, 1024);
-
-	FsFilesystem.Initialize();
-
 	const char* DirPath = "Foo/Bar/Baz";
 	FsFilesystem.CreateDirectory(DirPath);
 
@@ -108,6 +97,20 @@ int main()
 		}
 		FsLogger::LogFormat(FilesystemLogType::Error, "Extra characters: %s", ReadString.GetData());
 	}
+}
+
+int main()
+{
+    std::cout << "Hello World!\n";
+
+	FsLoggerImpl Logger = FsLoggerImpl();
+	Logger.SetShouldLogVerbose(false);
+	FsMemoryAllocatorImpl Allocator = FsMemoryAllocatorImpl();
+
+	// Make a test fs with a 1GB partition and 1KB block size
+	FsFilesystemImpl FsFilesystem = FsFilesystemImpl(1024ull * 1024ull * 1024ull, 1024);
+
+	FsFilesystem.Initialize();
 
 	FsFilesystem.LogAllFiles();
 

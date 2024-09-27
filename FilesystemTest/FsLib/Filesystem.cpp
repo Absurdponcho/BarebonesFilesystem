@@ -510,7 +510,7 @@ bool FsFilesystem::ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Dest
 			}
 			CurrentAbsoluteOffset = BlockIndexToAbsoluteOffset(CurrentChunk.NextBlockIndex);
 		}
-		fsCheck(BytesRead == Length, "Failed to read the correct amount of bytes from file %s", NormalizedPath.GetData());
+		fsCheck(BytesRead == Length, "Failed to read the correct amount of bytes from file");
 		FsLogger::LogFormat(FilesystemLogType::Info, "Read %u bytes from file %s", BytesRead, NormalizedPath.GetData());
 		return true;
 	}
@@ -1218,7 +1218,14 @@ void FsFilesystem::LogAllFiles_Internal(const FsDirectoryDescriptor& CurrentDire
 			Indent.Append("  ");
 		}
 
-		FsLogger::LogFormat(FilesystemLogType::Info, "%s%s", Indent.GetData(), File.FileName.GetData());
+		if (File.bIsDirectory)
+		{
+			FsLogger::LogFormat(FilesystemLogType::Info, "%s%s", Indent.GetData(), File.FileName.GetData());
+		}
+		else
+		{
+			FsLogger::LogFormat(FilesystemLogType::Info, "%s%s (%s)", Indent.GetData(), File.FileName.GetData(), GetCompressedBytesString(File.FileSize));
+		}
 
 		// Load directory
 		if (File.bIsDirectory)
@@ -1247,4 +1254,33 @@ bool FsFilesystem::MoveFile(const FsPath& SourceFileName, const FsPath& Destinat
 bool FsFilesystem::CopyFile(const FsPath& SourceFileName, const FsPath& DestinationFileName)
 {
 	return false;
+}
+
+const char* FsFilesystem::GetCompressedBytesString(uint64 Bytes)
+{
+	static char Buffer[256];
+	if (Bytes < 1024)
+	{
+		FsFormatter::Format(Buffer, 256, "%uB", Bytes);
+	}
+	else if (Bytes < 1024 * 1024)
+	{
+		uint64 WholePart = Bytes / 1024;
+		uint64 DecimalPart = (Bytes % 1024) * 100 / 1024;
+		FsFormatter::Format(Buffer, 256, "%u.%uKB", WholePart, DecimalPart);
+	}
+	else if (Bytes < 1024 * 1024 * 1024)
+	{
+		uint64 WholePart = Bytes / (1024 * 1024);
+		uint64 DecimalPart = (Bytes % (1024 * 1024)) * 100 / (1024 * 1024);
+		FsFormatter::Format(Buffer, 256, "%u.%uMB", WholePart, DecimalPart);
+	}
+	else
+	{
+		uint64 WholePart = Bytes / (1024 * 1024 * 1024);
+		uint64 DecimalPart = (Bytes % (1024 * 1024 * 1024)) * 100 / (1024 * 1024 * 1024);
+		FsFormatter::Format(Buffer, 256, "%u.%uGB", WholePart, DecimalPart);
+	}
+
+	return Buffer;
 }
