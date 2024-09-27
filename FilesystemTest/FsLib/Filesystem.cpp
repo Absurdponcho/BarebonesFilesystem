@@ -32,7 +32,7 @@ FsPath FsPath::NormalizePath() const
 	}
 
 	// Make lower case
-	Result = Result.ToLower<FsPath>();
+	//Result = Result.ToLower<FsPath>();
 
 	return Result;
 }
@@ -185,7 +185,24 @@ bool FsFilesystem::CreateFile_Internal(const FsPath& FileName, FsDirectoryDescri
 	return true;
 }
 
+bool FsFilesystem::GetFileSize(const FsPath& InFileName, uint64& OutFileSize)
+{
+	FsFileDescriptor File{};
+	if (!GetFile(InFileName, File))
+	{
+		return false;
+	}
+	OutFileSize = File.FileSize;
+	return true;
+}
+
 bool FsFilesystem::FileExists(const FsPath& InFileName)
+{
+	FsFileDescriptor File{};
+	return GetFile(InFileName, File);
+}
+
+bool FsFilesystem::GetFile(const FsPath& InFileName, FsFileDescriptor& OutFileDescriptor)
 {
 	const FsPath NormalizedPath = InFileName.NormalizePath();
 
@@ -194,9 +211,10 @@ bool FsFilesystem::FileExists(const FsPath& InFileName)
 		// Seeing if this file exists in the root directory
 		for (const FsFileDescriptor& File : RootDirectory.Files)
 		{
-			if (File.FileName == NormalizedPath)
+			if (!File.bIsDirectory && File.FileName == NormalizedPath)
 			{
 				FsLogger::LogFormat(FilesystemLogType::Verbose, "File %s exists", NormalizedPath.GetData());
+				OutFileDescriptor = File;
 				return true;
 			}
 		}
@@ -215,9 +233,10 @@ bool FsFilesystem::FileExists(const FsPath& InFileName)
 	const FsPath FileName = NormalizedPath.GetLastPath();
 	for (const FsFileDescriptor& File : Directory.Files)
 	{
-		if (File.FileName == FileName)
+		if (!File.bIsDirectory && File.FileName == FileName)
 		{
 			FsLogger::LogFormat(FilesystemLogType::Verbose, "File %s exists", NormalizedPath.GetData());
+			OutFileDescriptor = File;
 			return true;
 		}
 	}
@@ -330,6 +349,7 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 		uint64 BytesWritten = 0;
 		uint64 CurrentOffset = InOffset;
 		uint64 CurrentAbsoluteOffset = File.FileOffset;
+		uint64 RemainingOffset = InOffset;
 		for (const FsFileChunkHeader& Chunk : AllChunks)
 		{
 			// Just read and write one block at a time inside a chunk. The first block has the chunk header so need to skip the sizeof the chunk header.
@@ -338,6 +358,14 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 				const bool bHasChunkHeader = i == 0;
 				const uint64 FirstChunkOffset = bHasChunkHeader ? sizeof(FsFileChunkHeader) : 0;
 				const uint64 ReadableSize = BlockSize - FirstChunkOffset;
+
+				if (RemainingOffset > ReadableSize)
+				{
+					// Skip this block since we are not writing to it
+					RemainingOffset -= ReadableSize;
+					continue;
+				}
+
 				const uint64 ReadOffset = CurrentAbsoluteOffset + FirstChunkOffset + (i * BlockSize);
 
 				FsBitArray ChunkBuffer{};
@@ -363,7 +391,8 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 				}
 
 				// Update the buffer
-				for (uint64 j = 0; j < ReadableSize; j++)
+				fsCheck(RemainingOffset < ReadableSize, "Remaining offset is larger than the readable size!");
+				for (uint64 j = RemainingOffset; j < ReadableSize; j++)
 				{
 					ChunkBuffer.GetInternalArray().GetData()[j + FirstChunkOffset] = Source[BytesWritten];
 					BytesWritten++;
@@ -379,6 +408,7 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 						break;
 					}
 				}
+				RemainingOffset = 0;
 
 				// Write the block
 				const uint64 WriteOffset = CurrentAbsoluteOffset;
@@ -511,7 +541,6 @@ bool FsFilesystem::ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Dest
 			CurrentAbsoluteOffset = BlockIndexToAbsoluteOffset(CurrentChunk.NextBlockIndex);
 		}
 		fsCheck(BytesRead == Length, "Failed to read the correct amount of bytes from file");
-		FsLogger::LogFormat(FilesystemLogType::Info, "Read %u bytes from file %s", BytesRead, NormalizedPath.GetData());
 		return true;
 	}
 

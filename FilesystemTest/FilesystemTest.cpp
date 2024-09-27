@@ -99,6 +99,58 @@ void LargeFileTest(FsFilesystemImpl& FsFilesystem)
 	}
 }
 
+void MidFileWriteTest(FsFilesystemImpl& FsFilesystem)
+{
+	const char* DirPath = "Foo/Bar/Baz";
+	FsFilesystem.CreateDirectory(DirPath);
+
+	const char* TestFileName = "Foo/Bar/Baz/DestroyAllHumans2.txt";
+	FsFilesystem.CreateFile(TestFileName);
+
+	FsString TestString = "Hello, World! Destroy All Humans! Hello, World!";
+	const uint64 FileSize = TestString.Length() + 1;
+
+	FsFilesystem.WriteToFile(TestFileName, reinterpret_cast<const uint8*>(TestString.GetData()), 0, FileSize);
+
+	FsString ReadString = FsString();
+	ReadString.AddZeroed(FileSize - 1);
+	FsFilesystem.ReadFromFile(TestFileName, 0, reinterpret_cast<uint8*>(ReadString.GetData()), FileSize);
+
+	// check if the read string is the same as the written string
+	if (TestString == ReadString)
+	{
+		FsLogger::Log(FilesystemLogType::Info, "Strings match!");
+	}
+	else
+	{
+		FsLogger::Log(FilesystemLogType::Error, "Strings do not match!");
+		return;
+	}
+
+	// Log the original file contents
+	FsLogger::LogFormat(FilesystemLogType::Info, "File contents: %s, File Length %s", ReadString.GetData(), FsFilesystem.GetCompressedBytesString(FileSize));
+
+	// Replace Destroy All Humans in the middle of the file with pumpkin pie humans
+	FsString ReplaceString = "Pumpkin Pie Humans, Pumpkin Pie Humans, Pumpkin Pie Humans, Pumpkin Pie Humans";
+	FsFilesystem.WriteToFile(TestFileName, reinterpret_cast<const uint8*>(ReplaceString.GetData()), 14, ReplaceString.Length() + 1);
+
+	// Read the whole file
+	ReadString = FsString();
+
+	uint64 NewFileSize = 0;
+	if (!FsFilesystem.GetFileSize(TestFileName, NewFileSize))
+	{
+		FsLogger::Log(FilesystemLogType::Error, "Failed to get file size!");
+		return;
+	}
+
+	ReadString.AddZeroed(NewFileSize - 1);
+	FsFilesystem.ReadFromFile(TestFileName, 0, reinterpret_cast<uint8*>(ReadString.GetData()), NewFileSize);
+
+	// display the whole file
+	FsLogger::LogFormat(FilesystemLogType::Info, "File contents: %s, File Length %s", ReadString.GetData(), FsFilesystem.GetCompressedBytesString(NewFileSize));
+}
+
 int main()
 {
     std::cout << "Hello World!\n";
@@ -111,6 +163,8 @@ int main()
 	FsFilesystemImpl FsFilesystem = FsFilesystemImpl(1024ull * 1024ull * 1024ull, 1024);
 
 	FsFilesystem.Initialize();
+
+	MidFileWriteTest(FsFilesystem);
 
 	FsFilesystem.LogAllFiles();
 

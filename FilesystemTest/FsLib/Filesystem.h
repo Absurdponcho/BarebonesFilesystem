@@ -125,6 +125,8 @@ public:
 	bool CopyFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
 	bool GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescriptor& OutDirectoryDescriptor, FsFileDescriptor* OutDirectoryFile = nullptr);
 	bool DirectoryExists(const FsPath& InDirectoryName);
+	bool GetFile(const FsPath& InFileName, FsFileDescriptor& OutFileDescriptor);
+	bool GetFileSize(const FsPath& InFileName, uint64& OutFileSize);
 
 	void LogAllFiles();
 
