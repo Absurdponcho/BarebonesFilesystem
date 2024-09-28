@@ -14,6 +14,7 @@ set(CMAKE_C_STANDARD 11)
 
 include(CheckCSourceCompiles)
 include(CheckSymbolExists)
+include(cmake/find_dokan.cmake)
 
 file(READ ${CMAKE_CURRENT_LIST_DIR}/cmake/check_builtin.c CHECK_BUILTIN_SRC)
 set(CMAKE_REQUIRED_DEFINITIONS "-DBUILTIN_FUNC=__builtin_trap")
@@ -43,6 +44,12 @@ target_include_directories(
     ${GENERATED_HEADERS_DIR}
 )
 
+if(NOT WIN32)
+    return()
+endif()
+
+find_dokan()
+
 aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/FilesystemTest/ MAIN_SRC)
 add_executable(
     FilesystemTest
@@ -52,6 +59,7 @@ add_executable(
 target_include_directories(
     FilesystemTest PRIVATE 
     ${GENERATED_HEADERS_DIR}
+    ${CMAKE_CURRENT_LIST_DIR}/FilesystemTest/ThirdParty/Dokany/include
 )
 
 target_compile_options(
@@ -63,4 +71,5 @@ target_link_libraries(
     FilesystemTest
     PRIVATE
     BarebonesFilesystem
+    ${DOKAN_LIB}
 )
