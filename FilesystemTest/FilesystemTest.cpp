@@ -601,6 +601,12 @@ NTSTATUS DOKAN_CALLBACK FsGetDiskFreeSpace(PULONGLONG FreeBytesAvailable,
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
 		return STATUS_NOT_IMPLEMENTED;
 	}
+
+	// 1GB
+	*TotalNumberOfBytes = GlobalFilesystem->GetPartitionSize();
+	// 1GB
+	*TotalNumberOfFreeBytes = GlobalFilesystem->GetPartitionSize();
+
 	return STATUS_SUCCESS;
 }
 
