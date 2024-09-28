@@ -109,6 +109,12 @@ struct FsFilesystemHeader
 	void Serialize(FsBitStream& BitStream);
 };
 
+struct FsCachedChunkList
+{
+	FsPath FileName;
+	FsArray<FsFileChunkHeader> Chunks;
+};
+
 class FsFilesystem
 {
 public:
@@ -157,10 +163,10 @@ protected:
 	bool CreateFile_Internal(const FsPath& FileName, FsDirectoryDescriptor& CurrentDirectory, bool& bOutNeedsResave);
 
 	// Gets all the chunks for the given file, optionally only getting chunks up to a certain file length.
-	FsArray<FsFileChunkHeader> GetAllChunksForFile(const FsFileDescriptor& FileDescriptor, const uint64* OptionalFileLength = nullptr);
+	FsArray<FsFileChunkHeader> GetAllChunksForFile(const FsPath& InPath, const FsFileDescriptor& FileDescriptor, const uint64* OptionalFileLength = nullptr);
 
 	// Compares the file size to the amount of blocks allocated to the file.
-	uint64 GetFreeAllocatedSpaceInFileChunks(const FsFileDescriptor& FileDescriptor, const FsArray<FsFileChunkHeader>* OptionalInChunks);
+	uint64 GetFreeAllocatedSpaceInFileChunks(const FsPath& InPath, const FsFileDescriptor& FileDescriptor, const FsArray<FsFileChunkHeader>* OptionalInChunks);
 
 	uint64 GetAllocatedSpaceInFileChunks(const FsArray<FsFileChunkHeader>& InChunks);
 
@@ -200,6 +206,10 @@ protected:
 
 	uint64 GetBlockBufferOffset() const
 	{
+		if (BlockSize > FS_HEADER_MAXSIZE)
+		{
+			return BlockSize;
+		}
 		return FS_HEADER_MAXSIZE;
 	}
 
@@ -217,5 +227,10 @@ protected:
 	}
 
 	bool WriteSingleChunk(const FsBitArray& ChunkData, uint64 AbsoluteOffset);
+
+	void CacheChunks(const FsPath& FileName, const FsArray<FsFileChunkHeader>& Chunks);
+	void ClearCachedChunks(const FsPath& FileName);
+	bool GetCachedChunks(const FsPath& FileName, FsArray<FsFileChunkHeader>& OutChunks);
+	FsArray<FsCachedChunkList> CachedChunks;
 };
 

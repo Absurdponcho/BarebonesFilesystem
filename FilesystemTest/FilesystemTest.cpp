@@ -238,7 +238,7 @@ NTSTATUS DOKAN_CALLBACK FsReadFile(LPCWSTR FileName,
 	{
 		return STATUS_NO_SUCH_FILE;
 	}
-	FsLogger::LogFormat(FilesystemLogType::Info, "ReadFile: %s", FileNameString.GetData());
+	//FsLogger::LogFormat(FilesystemLogType::Info, "ReadFile: %s", FileNameString.GetData());
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
@@ -252,17 +252,15 @@ NTSTATUS DOKAN_CALLBACK FsReadFile(LPCWSTR FileName,
 		return STATUS_NO_SUCH_FILE;
 	}
 
-	FsArray<uint8> Data;
-	Data.FillZeroed(BufferLength);
 	uint64 BytesRead = 0;
-	if (!GlobalFilesystem->ReadFromFile(FileNameString, Offset, Data.GetData(), BufferLength, &BytesRead))
+	if (!GlobalFilesystem->ReadFromFile(FileNameString, Offset, reinterpret_cast<uint8*>(Buffer), BufferLength, &BytesRead))
 	{
 		return STATUS_NO_SUCH_FILE;
 	}
-	
-	memcpy(Buffer, Data.GetData(), BufferLength);
 
 	*ReadLength = BytesRead;
+
+	FsLogger::LogFormat(FilesystemLogType::Info, "ReadFile: %s, Offset %u, Bytes Read %u", FileNameString.GetData(), Offset, (uint64)BytesRead);
 
 	return STATUS_SUCCESS;
 }
@@ -290,6 +288,8 @@ NTSTATUS DOKAN_CALLBACK FsWriteFile(LPCWSTR FileName,
 	{
 		return STATUS_NO_SUCH_FILE;
 	}
+
+	FsLogger::LogFormat(FilesystemLogType::Info, "WriteFile: %s, Offset %u, Bytes Written %u", FileNameString.GetData(), Offset, (uint64)NumberOfBytesToWrite);
 
 	*NumberOfBytesWritten = NumberOfBytesToWrite;
 
@@ -735,7 +735,7 @@ int main()
 	FsMemoryAllocatorImpl Allocator = FsMemoryAllocatorImpl();
 
 	// Make a test fs with a 1GB partition and 1KB block size
-	FsFilesystemImpl FsFilesystem = FsFilesystemImpl(1024ull * 1024ull * 1024ull, 1024);
+	FsFilesystemImpl FsFilesystem = FsFilesystemImpl(1024ull * 1024ull * 1024ull * 4ull, 1024 * 1024);
 	GlobalFilesystem = &FsFilesystem;
 
 	FsFilesystem.Initialize();

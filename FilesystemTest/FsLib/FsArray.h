@@ -259,6 +259,14 @@ public:
 		Count = NewCount;
 	}
 
+	// @brief Extends the array with uninitialized elements
+	// @param NewCount The new count
+	void FillUninitialized(uint64 NewCount)
+	{
+		Reserve(NewCount);
+		Count = NewCount;
+	}
+
 	// @brief Fills the array with default elements
 	// @param NewCount The new count
 	void FillDefault(uint64 NewCount)
