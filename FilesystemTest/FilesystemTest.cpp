@@ -67,15 +67,16 @@ NTSTATUS DOKAN_CALLBACK FsDokanCreateFile(LPCWSTR FileName,
 	ULONG CreateOptions,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
+	if (!GlobalFilesystem)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "FsDokanCreateFile: GlobalFilesystem is null");
+		return STATUS_NOT_IMPLEMENTED;
+	}
+
 	const FsString FileNameString = LPCWSTRToFsString(FileName);
 	if (IgnoreFilePath(FileNameString))
 	{
 		return STATUS_NO_SUCH_FILE;
-	}
-	if (FileNameString == FsString("\\"))
-	{
-		FsLogger::LogFormat(FilesystemLogType::Info, "FsDokanCreateFile: Root directory: %s", FileNameString.GetData());
-		return STATUS_SUCCESS;
 	}
 
 	ACCESS_MASK generic_desiredaccess;
@@ -87,24 +88,18 @@ NTSTATUS DOKAN_CALLBACK FsDokanCreateFile(LPCWSTR FileName,
 		&generic_desiredaccess, &file_attributes_and_flags,
 		&creation_disposition);
 		
-	if (GlobalFilesystem->DirectoryExists(FileNameString))
+	const bool bIsRootDirectory = FileNameString == FsString("\\");
+	const bool bHasExistingDirectory = bIsRootDirectory || GlobalFilesystem->DirectoryExists(FileNameString);
+	const bool bHasExistingFile = GlobalFilesystem->FileExists(FileNameString);
+
+	if (bHasExistingDirectory)
 	{
 		if (CreateOptions & FILE_NON_DIRECTORY_FILE)
 		{
 			return STATUS_FILE_IS_A_DIRECTORY;
 		}
+
 		DokanFileInfo->IsDirectory = true;
-	}
-
-	if (FileNameString.Contains("New"))
-	{
-		FsLogger::LogFormat(FilesystemLogType::Info, "FsDokanCreateFile: New file %s", FileNameString.GetData());
-	}
-
-	if (!GlobalFilesystem)
-	{
-		FsLogger::LogFormat(FilesystemLogType::Error, "FsDokanCreateFile: GlobalFilesystem is null");
-		return STATUS_NOT_IMPLEMENTED;
 	}
 
 	if (DokanFileInfo->IsDirectory)
@@ -112,57 +107,107 @@ NTSTATUS DOKAN_CALLBACK FsDokanCreateFile(LPCWSTR FileName,
 		if (creation_disposition == CREATE_NEW ||
 			creation_disposition == OPEN_ALWAYS)
 		{
-			if (GlobalFilesystem->DirectoryExists(FileNameString))
+			if (bHasExistingFile || bHasExistingDirectory)
 			{
-				FsLogger::LogFormat(FilesystemLogType::Info, "FsDokanCreateFile: Directory exists: %s", FileNameString.GetData());
 				return STATUS_OBJECT_NAME_COLLISION;
 			}
-		}
 
-		if (creation_disposition == OPEN_EXISTING)
-		{
-			if (!GlobalFilesystem->DirectoryExists(FileNameString))
+			if (!GlobalFilesystem->CreateDirectory(FileNameString))
 			{
-				FsLogger::LogFormat(FilesystemLogType::Info, "FsDokanCreateFile: Directory does not exist: %s", FileNameString.GetData());
-				return STATUS_OBJECT_NAME_NOT_FOUND;
+				return STATUS_NO_SUCH_FILE;
 			}
 			return STATUS_SUCCESS;
 		}
 
-		if (!GlobalFilesystem->CreateDirectory(FileNameString))
+		if (bHasExistingFile && !bHasExistingDirectory)
 		{
-			FsLogger::LogFormat(FilesystemLogType::Error, "FsDokanCreateFile: Failed to create directory: %s", FileNameString.GetData());
-			return STATUS_NO_SUCH_FILE;
+			return STATUS_NOT_A_DIRECTORY;
 		}
-		DokanFileInfo->IsDirectory = true;
+
+		if (!bHasExistingFile && !bHasExistingDirectory)
+		{
+			return STATUS_OBJECT_NAME_NOT_FOUND;
+		}
 	}
 	else
 	{
-		if (creation_disposition == OPEN_EXISTING || creation_disposition == OPEN_ALWAYS)
+		switch (creation_disposition)
 		{
-			if (!GlobalFilesystem->FileExists(FileNameString) && !GlobalFilesystem->DirectoryExists(FileNameString))
+			case CREATE_ALWAYS:
 			{
-				FsLogger::LogFormat(FilesystemLogType::Info, "FsDokanCreateFile: File or directory does not exist: %s", FileNameString.GetData());
-				return STATUS_OBJECT_NAME_NOT_FOUND;
-			}
-			return STATUS_SUCCESS;
-		}
+				if (bHasExistingFile)
+				{
+					return STATUS_OBJECT_NAME_COLLISION;
+				}
 
-		if (!GlobalFilesystem->CreateFile(FileNameString))
-		{
-			FsLogger::LogFormat(FilesystemLogType::Error, "FsDokanCreateFile: Failed to create file: %s", FileNameString.GetData());
-			return STATUS_NO_SUCH_FILE;
+				if (!GlobalFilesystem->CreateFile(FileNameString))
+				{
+					return STATUS_NO_SUCH_FILE;
+				}
+				break;
+			}
+			case CREATE_NEW:
+			{
+				if (bHasExistingFile)
+				{
+					return STATUS_OBJECT_NAME_COLLISION;
+				}
+
+				if (!GlobalFilesystem->CreateFile(FileNameString))
+				{
+					return STATUS_NO_SUCH_FILE;
+				}
+				break;
+			}
+			case OPEN_ALWAYS:
+			{
+				if (!bHasExistingFile)
+				{
+					if (!GlobalFilesystem->CreateFile(FileNameString))
+					{
+						return STATUS_NO_SUCH_FILE;
+					}
+				}
+				break;
+			}
+			case OPEN_EXISTING:
+			{
+				if (!bHasExistingFile)
+				{
+					return STATUS_OBJECT_NAME_NOT_FOUND;
+				}
+				break;
+			}
+			case TRUNCATE_EXISTING:
+			{
+				if (!bHasExistingFile)
+				{
+					return STATUS_OBJECT_NAME_NOT_FOUND;
+				}
+
+				// TODO: Truncate
+				break;
+			}
+			default:
+			{
+				fsCheck(false, "Invalid creation disposition");
+				return STATUS_INVALID_PARAMETER;
+			}
 		}
-		DokanFileInfo->IsDirectory = false;
 	}
 
-	return STATUS_SUCCESS;	
+	if ((bHasExistingFile || bHasExistingDirectory) && (creation_disposition == CREATE_NEW || creation_disposition == OPEN_ALWAYS))
+	{
+		return STATUS_OBJECT_NAME_COLLISION;
+	}
+
+	return STATUS_SUCCESS;
 }
 
 void DOKAN_CALLBACK FsCleanup(LPCWSTR FileName,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "Cleanup: %s", FileName);	
+	//FsLogger::LogFormat(FilesystemLogType::Info, "Cleanup: %s", FileName);	
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
@@ -173,7 +218,7 @@ void DOKAN_CALLBACK FsCleanup(LPCWSTR FileName,
 void DOKAN_CALLBACK FsCloseFile(LPCWSTR FileName,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "CloseFile: %s", FileName);
+	//FsLogger::LogFormat(FilesystemLogType::Info, "CloseFile: %s", FileName);
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
@@ -200,10 +245,25 @@ NTSTATUS DOKAN_CALLBACK FsReadFile(LPCWSTR FileName,
 		return STATUS_NOT_IMPLEMENTED;
 	}
 
-	if (!GlobalFilesystem->ReadFromFile(FileNameString, Offset, reinterpret_cast<uint8*>(Buffer), BufferLength))
+	uint64 FileSize = 0;
+	if (!GlobalFilesystem->GetFileSize(FileNameString, FileSize))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get file size");
+		return STATUS_NO_SUCH_FILE;
+	}
+
+	FsArray<uint8> Data;
+	Data.FillZeroed(BufferLength);
+	uint64 BytesRead = 0;
+	if (!GlobalFilesystem->ReadFromFile(FileNameString, Offset, Data.GetData(), BufferLength, &BytesRead))
 	{
 		return STATUS_NO_SUCH_FILE;
 	}
+	
+	memcpy(Buffer, Data.GetData(), BufferLength);
+
+	*ReadLength = BytesRead;
+
 	return STATUS_SUCCESS;
 }
 
@@ -230,6 +290,8 @@ NTSTATUS DOKAN_CALLBACK FsWriteFile(LPCWSTR FileName,
 	{
 		return STATUS_NO_SUCH_FILE;
 	}
+
+	*NumberOfBytesWritten = NumberOfBytesToWrite;
 
 	return STATUS_SUCCESS;
 }
@@ -336,7 +398,7 @@ NTSTATUS DOKAN_CALLBACK FsFindFiles(LPCWSTR FileName,
 	{
 		return STATUS_NO_SUCH_FILE;
 	}
-	FsLogger::LogFormat(FilesystemLogType::Info, "FindFiles: %s", FileNameString.GetData());
+	//FsLogger::LogFormat(FilesystemLogType::Info, "FindFiles: %s", FileNameString.GetData());
 
 	FsDirectoryDescriptor DirectoryDescriptor;
 	if (!GlobalFilesystem->GetDirectory(FileNameString, DirectoryDescriptor))
@@ -377,7 +439,7 @@ NTSTATUS DOKAN_CALLBACK FsFindFilesWithPattern(LPCWSTR FileName,
 	PFillFindData FillFindData,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "FindFilesWithPattern: %s", FileName);
+	//FsLogger::LogFormat(FilesystemLogType::Info, "FindFilesWithPattern: %s", FileName);
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
@@ -443,12 +505,34 @@ NTSTATUS DOKAN_CALLBACK FsMoveFile(LPCWSTR FileName, // existing file name
 	BOOL ReplaceIfExisting,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "MoveFile: %s", FileName);
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
 		return STATUS_NOT_IMPLEMENTED;
 	}
+
+	const FsString FromFileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FromFileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+	const FsString ToFileNameString = LPCWSTRToFsString(NewFileName);
+	if (IgnoreFilePath(ToFileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+
+	const bool bDestinationExists = GlobalFilesystem->FileExists(ToFileNameString) || GlobalFilesystem->DirectoryExists(ToFileNameString);
+	if (bDestinationExists)
+	{
+		return STATUS_ACCESS_DENIED;
+	}
+
+	if (!GlobalFilesystem->FsMoveFile(FromFileNameString, ToFileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+
 	return STATUS_SUCCESS;
 }
 
@@ -529,7 +613,7 @@ NTSTATUS DOKAN_CALLBACK FsGetVolumeInformation(LPWSTR VolumeNameBuffer,
 	DWORD FileSystemNameSize,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "GetVolumeInformation");
+	//FsLogger::LogFormat(FilesystemLogType::Info, "GetVolumeInformation");
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");

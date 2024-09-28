@@ -82,11 +82,20 @@ struct FsFileDescriptor
 		bIsDirectory = InFileDescriptor.bIsDirectory;
 		return *this;
 	}
+
+	// equals operator
+	bool operator==(const FsFileDescriptor& InFileDescriptor) const
+	{
+		return FileName == InFileDescriptor.FileName && FileOffset == InFileDescriptor.FileOffset && FileSize == InFileDescriptor.FileSize && bIsDirectory == InFileDescriptor.bIsDirectory;
+	}
+
 };
 
 struct FsDirectoryDescriptor
 {
 	FsFileArray Files = FsFileArray();
+
+	bool bDirectoryIsRoot = false;
 
 	void Serialize(FsBitStream& BitStream);
 };
@@ -118,10 +127,10 @@ public:
 	bool FileExists(const FsPath& InFileName);
 	bool CreateDirectory(const FsPath& InDirectoryName);
 	bool WriteToFile(const FsPath& InPath, const uint8* Source, uint64 InOffset, uint64 InLength);
-	bool ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Destination, uint64 Length);
+	bool ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Destination, uint64 Length, uint64* OutBytesRead = nullptr);
 	bool DeleteDirectory(const FsPath& DirectoryName);
 	bool DeleteFile(const FsPath& FileName);
-	bool MoveFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
+	bool FsMoveFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
 	bool CopyFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
 	bool GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescriptor& OutDirectoryDescriptor, FsFileDescriptor* OutDirectoryFile = nullptr);
 	bool DirectoryExists(const FsPath& InDirectoryName);

@@ -44,6 +44,11 @@ FsPath FsPath::NormalizePath() const
 
 FsPath FsPath::GetPathWithoutFileName() const
 {
+	if (!Contains("/"))
+	{
+		return FsPath(); // Empty path
+	}
+
 	// Find the last slash
 	uint64 LastSlashIndex = 0;
 	if (!FindLast("/", LastSlashIndex))
@@ -231,7 +236,6 @@ bool FsFilesystem::GetFile(const FsPath& InFileName, FsFileDescriptor& OutFileDe
 	FsDirectoryDescriptor Directory{};
 	if (!GetDirectory(DirectoryPath, Directory))
 	{
-		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get directory for file %s", InFileName.GetData());
 		return false;
 	}
 
@@ -450,7 +454,7 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 	return false;
 }
 
-bool FsFilesystem::ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Destination, uint64 Length)
+bool FsFilesystem::ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Destination, uint64 Length, uint64* OutBytesRead)
 {
 	const FsPath NormalizedPath = InPath.NormalizePath();
 
@@ -537,9 +541,6 @@ bool FsFilesystem::ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Dest
 					BytesRead++;
 				}
 
-				// Log the character that is read
-				FsLogger::LogFormat(FilesystemLogType::Info, "Read character %c at %u", ChunkBuffer[ChunkByteIndex], CurrentOffset);
-
 				CurrentOffset++;
 				if (BytesRead >= Length)
 				{
@@ -554,6 +555,10 @@ bool FsFilesystem::ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Dest
 			CurrentAbsoluteOffset = BlockIndexToAbsoluteOffset(CurrentChunk.NextBlockIndex);
 		}
 		fsCheck(BytesRead == Length, "Failed to read the correct amount of bytes from file");
+		if (OutBytesRead)
+		{
+			*OutBytesRead = BytesRead;
+		}
 		return true;
 	}
 
@@ -779,6 +784,7 @@ void FsFilesystemHeader::Serialize(FsBitStream& BitStream)
 	FsLogger::LogFormat(FilesystemLogType::Verbose, "Serialized Filesystem version: %s", FilesystemVersion.GetData());
 
 	RootDirectory.Serialize(BitStream);
+	RootDirectory.bDirectoryIsRoot = true;
 }
 
 void FsFilesystem::LoadOrCreateFilesystemHeader()
@@ -808,12 +814,14 @@ void FsFilesystem::LoadOrCreateFilesystemHeader()
 		FilesystemHeader.MagicNumber = FS_MAGIC;
 		FilesystemHeader.FilesystemVersion = FS_VERSION;
 		FilesystemHeader.RootDirectory = FsDirectoryDescriptor();
+		FilesystemHeader.RootDirectory.bDirectoryIsRoot = true;
+		RootDirectory.bDirectoryIsRoot = true;
 
 		ClearBlockBuffer();
 
-		FsFileDescriptor RootDirectory;
-		RootDirectory.FileName = "Root";
-		RootDirectory.bIsDirectory = true;
+		FsFileDescriptor RootDirectoryFile;
+		RootDirectoryFile.FileName = "Root";
+		RootDirectoryFile.bIsDirectory = true;
 
 		// find a block for the root directory
 		const FsBlockArray RootDirectoryBlocks = GetFreeBlocks(1);
@@ -827,16 +835,17 @@ void FsFilesystem::LoadOrCreateFilesystemHeader()
 
 		const uint64 AbsoluteOffset = BlockIndexToAbsoluteOffset(RootDirectoryBlocks[0]);
 
-		RootDirectory.FileOffset = AbsoluteOffset;
-		RootDirectory.FileSize = 0;
+		RootDirectoryFile.FileOffset = AbsoluteOffset;
+		RootDirectoryFile.FileSize = 0;
 
 		SaveFilesystemHeader(FilesystemHeader);
 
-		FsLogger::LogFormat(FilesystemLogType::Verbose, "Filesystem header created successfully. Root directory located at %u bytes.", RootDirectory.FileOffset);
+		FsLogger::LogFormat(FilesystemLogType::Verbose, "Filesystem header created successfully. Root directory located at %u bytes.", RootDirectoryFile.FileOffset);
 		return;
 	}
 
 	RootDirectory = FilesystemHeader.RootDirectory;
+	RootDirectory.bDirectoryIsRoot = true;
 	FsLogger::LogFormat(FilesystemLogType::Verbose, "Filesystem header loaded successfully");
 
 	// List the amount of root files and then list them in a comma separated list.
@@ -990,6 +999,7 @@ bool FsFilesystem::GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescri
 	{
 		// Root directory
 		OutDirectoryDescriptor = RootDirectory;
+		fsCheck(OutDirectoryDescriptor.bDirectoryIsRoot, "Root is not root");
 		return true;
 	}
 
@@ -1029,7 +1039,6 @@ bool FsFilesystem::GetDirectory_Internal(const FsPath& DirectoryPath, const FsDi
 		const bool bSubPathResult = GetDirectory_Internal(SubDirectory, NextDirectory, OutDirectory, OutDirectoryFile);
 		if (!bSubPathResult)
 		{
-			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get directory %s", SubDirectory.GetData());
 			return false;
 		}
 
@@ -1162,6 +1171,16 @@ bool FsFilesystem::CreateDirectory_Internal(const FsPath& DirectoryName, FsDirec
 
 bool FsFilesystem::SaveDirectory(const FsDirectoryDescriptor& Directory, uint64 AbsoluteOffset)
 {
+	if (Directory.bDirectoryIsRoot)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Verbose, "Saving root directory");
+		FsFilesystemHeader Header = FsFilesystemHeader();
+		Header.RootDirectory = Directory;
+		SaveFilesystemHeader(Header);
+		RootDirectory = Directory; // Update the root directory
+		return true;
+	}
+
 	FsLogger::LogFormat(FilesystemLogType::Verbose, "Saving directory at %u bytes", AbsoluteOffset);
 
 	// Resave the current directory
@@ -1295,9 +1314,106 @@ bool FsFilesystem::DeleteFile(const FsPath& FileName)
 	return false;
 }
 
-bool FsFilesystem::MoveFile(const FsPath& SourceFileName, const FsPath& DestinationFileName)
+bool FsFilesystem::FsMoveFile(const FsPath& SourceFileName, const FsPath& DestinationFileName)
 {
-	return false;
+	const FsPath NormalizedSourcePath = SourceFileName.NormalizePath();
+	const FsPath NormalizedSourceFileName = NormalizedSourcePath.GetLastPath();
+	const FsPath NormalizedSourceDirectoryPath = NormalizedSourcePath.GetPathWithoutFileName();
+	const FsPath NormalizedDestinationPath = DestinationFileName.NormalizePath();
+	const FsPath NormalizedDestinationFileName = NormalizedDestinationPath.GetLastPath();
+	const FsPath NormalizedDestinationDirectoryPath = NormalizedDestinationPath.GetPathWithoutFileName();
+
+	const bool bSameDirectory = NormalizedSourceDirectoryPath == NormalizedDestinationDirectoryPath;
+
+	FsDirectoryDescriptor DestinationDirectory;
+	FsFileDescriptor DestinationDirectoryFile;
+	if (!GetDirectory(NormalizedDestinationDirectoryPath, DestinationDirectory, &DestinationDirectoryFile))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get destination directory %s", NormalizedDestinationDirectoryPath.GetData());
+		return false;
+	}
+
+	FsDirectoryDescriptor SourceDirectory;
+	FsFileDescriptor SourceDirectoryFile;
+	if (bSameDirectory)
+	{
+		SourceDirectory = DestinationDirectory;
+		SourceDirectoryFile = DestinationDirectoryFile;
+	}
+	else
+	{
+		if (!GetDirectory(NormalizedSourceDirectoryPath, SourceDirectory, &SourceDirectoryFile))
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get source directory %s", NormalizedSourceDirectoryPath.GetData());
+			return false;
+		}
+	}
+
+	FsFileDescriptor SourceFile;
+	uint64 SourceFileIndex = 0;
+	bool bFoundSourceFile = false;
+	for (uint64 SourceIndex = 0; SourceIndex < SourceDirectory.Files.Length(); SourceIndex++)
+	{
+		const FsFileDescriptor& File = SourceDirectory.Files[SourceIndex];
+		if (File.FileName == NormalizedSourceFileName)
+		{
+			SourceFile = File;
+			bFoundSourceFile = true;
+			SourceFileIndex = SourceIndex;
+			break;
+		}
+	}
+
+	if (!bFoundSourceFile)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to find source file %s in directory %s", NormalizedSourceFileName.GetData(), NormalizedSourceDirectoryPath.GetData());
+		return false;
+	}
+
+	for (const FsFileDescriptor& File : DestinationDirectory.Files)
+	{
+		if (File.FileName == NormalizedDestinationFileName)
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "Destination file %s already exists in directory %s", NormalizedDestinationFileName.GetData(), NormalizedDestinationDirectoryPath.GetData());
+			return false;
+		}
+	}
+
+	// Move the file
+	SourceFile.FileName = NormalizedDestinationFileName;
+	if (bSameDirectory)
+	{
+		DestinationDirectory.Files.RemoveAt(SourceFileIndex);
+	}
+	else
+	{
+		SourceDirectory.Files.RemoveAt(SourceFileIndex);
+	}
+	DestinationDirectory.Files.Add(SourceFile);
+
+	// Save the directories
+	if (!SaveDirectory(DestinationDirectory, DestinationDirectoryFile.FileOffset))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to save destination directory %s", NormalizedDestinationDirectoryPath.GetData());
+		return false;
+	}
+
+	if (!bSameDirectory) // If its the same directory then we already saved it.
+	{
+		if (!SaveDirectory(SourceDirectory, SourceDirectoryFile.FileOffset))
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to save source directory %s", NormalizedSourceDirectoryPath.GetData());
+			return false;
+		}
+	}
+
+	// Log all files in DestinationDirectory
+	for (const FsFileDescriptor& File : DestinationDirectory.Files)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Info, "Destination directory %s has file %s", NormalizedDestinationDirectoryPath.GetData(), File.FileName.GetData());
+	}
+
+	return true;
 }
 
 bool FsFilesystem::CopyFile(const FsPath& SourceFileName, const FsPath& DestinationFileName)
