@@ -1327,7 +1327,7 @@ FsDirectoryDescriptor FsFilesystem::ReadFileAsDirectory(const FsFileDescriptor& 
 {
 	// Read the first block of the file
 	const uint64 ReadOffset = FileDescriptor.FileOffset;
-	const uint64 ReadLength = BlockSize > 4096 ? 4096 : BlockSize; // TODO: Read more than 1 block
+	const uint64 ReadLength = BlockSize; // TODO: Read more than 1 block
 
 	FsBitArray FileBuffer = FsBitArray();
 	FileBuffer.FillZeroed(ReadLength);
@@ -1569,4 +1569,33 @@ const char* FsFilesystem::GetCompressedBytesString(uint64 Bytes)
 	}
 
 	return Buffer;
+}
+
+bool FsFilesystem::GetTotalAndFreeBytes(uint64& OutTotalBytes, uint64& OutFreeBytes)
+{
+	OutTotalBytes = GetPartitionSize();
+	OutFreeBytes = 0;
+	FsBitArray BlockBuffer;
+	BlockBuffer.FillZeroed(GetBlockBufferSizeBytes());
+
+	const FilesystemReadResult ReadResult = Read(GetBlockBufferOffset(), GetBlockBufferSizeBytes(), BlockBuffer.GetInternalArray().GetData());
+	if (ReadResult != FilesystemReadResult::Success)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "GetTotalAndUsedBytes: Failed to read block buffer. Ensure `Read` is implemented correctly.");
+		return false;
+	}
+
+	// Calculate the minimum block index that we should skip to avoid the block buffer.
+	const uint64 MinBlockIndex = GetBlockBufferSizeBytes() / BlockSize;
+
+	FsLogger::LogFormat(FilesystemLogType::Info, "BlockBuffer Length %i", BlockBuffer.BitLength());
+	for (uint64 i = MinBlockIndex; i < BlockBuffer.BitLength(); i++)
+	{
+		if (!BlockBuffer.GetBit(i))
+		{
+			OutFreeBytes += BlockSize;
+		}
+	}
+
+	return true;
 }

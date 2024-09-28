@@ -142,6 +142,7 @@ public:
 	bool DirectoryExists(const FsPath& InDirectoryName);
 	bool GetFile(const FsPath& InFileName, FsFileDescriptor& OutFileDescriptor);
 	bool GetFileSize(const FsPath& InFileName, uint64& OutFileSize);
+	bool GetTotalAndFreeBytes(uint64& OutTotalBytes, uint64& OutFreeBytes);
 
 	void LogAllFiles();
 
@@ -196,12 +197,27 @@ protected:
 
 	// The size of the buffer needed to store 1 bit per block in the partition.
 	// This is used to track which blocks are free or in use.
-	uint64 GetBlockBufferSizeBytes() const
+	uint64 GetBlockBufferSizeBytes(bool bPadToBlockSize = false) const
 	{
-		const uint64 UsablePartitionSize = PartitionSize - FS_HEADER_MAXSIZE;
-		const uint64 TotalSize = UsablePartitionSize / BlockSize / 8;
+		const uint64 BitAmount = GetBlockBufferSizeBits();
+		const uint64 ByteAmount = BitAmount % 8 == 0 ? BitAmount / 8 : BitAmount / 8 + 1;
+		if (!bPadToBlockSize)
+		{
+			return ByteAmount;
+		}
 		// round up to the nearest BlockSize
-		return TotalSize + (BlockSize - (TotalSize % BlockSize));
+		if (ByteAmount % BlockSize == 0)
+		{
+			return ByteAmount;
+		}
+		return ((ByteAmount / BlockSize) + 1) * BlockSize;
+	}
+
+	uint64 GetBlockBufferSizeBits() const
+	{
+		const uint64 UsablePartitionSize = PartitionSize - GetBlockBufferOffset();
+		const uint64 BitAmount = UsablePartitionSize / BlockSize;
+		return BitAmount;
 	}
 
 	uint64 GetBlockBufferOffset() const

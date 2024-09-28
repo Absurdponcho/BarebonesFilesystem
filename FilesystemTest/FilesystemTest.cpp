@@ -602,10 +602,8 @@ NTSTATUS DOKAN_CALLBACK FsGetDiskFreeSpace(PULONGLONG FreeBytesAvailable,
 		return STATUS_NOT_IMPLEMENTED;
 	}
 
-	// 1GB
-	*TotalNumberOfBytes = GlobalFilesystem->GetPartitionSize();
-	// 1GB
-	*TotalNumberOfFreeBytes = GlobalFilesystem->GetPartitionSize();
+	GlobalFilesystem->GetTotalAndFreeBytes(*TotalNumberOfBytes, *TotalNumberOfFreeBytes);
+	*FreeBytesAvailable = *TotalNumberOfFreeBytes;
 
 	return STATUS_SUCCESS;
 }
@@ -627,7 +625,7 @@ NTSTATUS DOKAN_CALLBACK FsGetVolumeInformation(LPWSTR VolumeNameBuffer,
 	}
 
 	const wchar_t* VolumeName = L"FsTest";
-	const wchar_t* FileSystemName = L"NTFS";
+	const wchar_t* FileSystemName = L"FsTest";
 
 	if (VolumeNameBuffer)
 	{
@@ -734,8 +732,8 @@ int main()
 	Logger.SetShouldLogVerbose(false);
 	FsMemoryAllocatorImpl Allocator = FsMemoryAllocatorImpl();
 
-	// Make a test fs with a 1GB partition and 1KB block size
-	FsFilesystemImpl FsFilesystem = FsFilesystemImpl(1024ull * 1024ull * 1024ull * 4ull, 1024 * 1024);
+	// Make a test fs with a 4GB partition and 128KB block size
+	FsFilesystemImpl FsFilesystem = FsFilesystemImpl(1024ull * 1024ull * 1024ull * 4ull, 1024 * 128);
 	GlobalFilesystem = &FsFilesystem;
 
 	FsFilesystem.Initialize();
