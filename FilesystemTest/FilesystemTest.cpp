@@ -207,22 +207,59 @@ NTSTATUS DOKAN_CALLBACK FsDokanCreateFile(LPCWSTR FileName,
 void DOKAN_CALLBACK FsCleanup(LPCWSTR FileName,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	//FsLogger::LogFormat(FilesystemLogType::Info, "Cleanup: %s", FileName);	
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
 		return;
+	}
+
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		return;
+	}
+
+	if (DokanFileInfo->DeleteOnClose)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Info, "CloseFile %s Delete on close", FileNameString.GetData());
 	}
 }
 
 void DOKAN_CALLBACK FsCloseFile(LPCWSTR FileName,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	//FsLogger::LogFormat(FilesystemLogType::Info, "CloseFile: %s", FileName);
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
 		return;
+	}
+
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		return;
+	}
+
+	if (!DokanFileInfo->DeleteOnClose)
+	{
+		return;
+	}
+
+	FsLogger::LogFormat(FilesystemLogType::Info, "CloseFile %s Delete on close", FileNameString.GetData());
+
+	if (DokanFileInfo->IsDirectory)
+	{
+		if (!GlobalFilesystem->FsDeleteDirectory(FileNameString))
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to delete directory: %s", FileNameString.GetData());
+		}
+	}
+	else
+	{
+		if (!GlobalFilesystem->FsDeleteFile(FileNameString))
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to delete file: %s", FileNameString.GetData());
+		}
 	}
 }
 
@@ -479,24 +516,48 @@ NTSTATUS DOKAN_CALLBACK FsSetFileTime(LPCWSTR FileName,
 NTSTATUS DOKAN_CALLBACK FsDeleteFile(LPCWSTR FileName,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "DeleteFile: %s", FileName);
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
 		return STATUS_NOT_IMPLEMENTED;
 	}
+
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+
+	FsLogger::LogFormat(FilesystemLogType::Info, "DeleteFile: %s", FileNameString.GetData());
+	if (!GlobalFilesystem->FsDeleteFile(FileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+
 	return STATUS_SUCCESS;
 }
 
 NTSTATUS DOKAN_CALLBACK FsDeleteDirectory(LPCWSTR FileName,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "DeleteDirectory: %s", FileName);
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
 		return STATUS_NOT_IMPLEMENTED;
 	}
+
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+
+	FsLogger::LogFormat(FilesystemLogType::Info, "DeleteDirectory: %s", FileNameString.GetData());	
+	if (!GlobalFilesystem->FsDeleteDirectory(FileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+
 	return STATUS_SUCCESS;
 }
 

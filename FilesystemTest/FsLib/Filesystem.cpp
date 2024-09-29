@@ -977,30 +977,54 @@ void FsFilesystem::LoadOrCreateFilesystemHeader()
 	FsLogger::LogFormat(FilesystemLogType::Verbose, "Root directory files: %s", RootFilesList.GetData());
 }
 
+bool FsFilesystem::GetUsedBlocksCount(uint64& OutUsedBlocks)
+{
+	const FsBitArray BlockBuffer = ReadBlockBuffer();
+	OutUsedBlocks = 0;
+	for (uint64 i = 0; i < BlockBuffer.BitLength(); i++)
+	{
+		if (BlockBuffer.GetBit(i))
+		{
+			OutUsedBlocks++;
+		}
+	}
+
+	return true;
+}
+
 void FsFilesystem::SetBlocksInUse(const FsBlockArray& BlockIndices, bool bInUse)
 {
 	fsCheck(BlockIndices.Length() > 0, "BlockIndices must have at least one element");
 
-	for (uint64 BlockIndex : BlockIndices)
+	uint64 UsedBlocks = 0;
+	if (!GetUsedBlocksCount(UsedBlocks))
 	{
-		FsLogger::LogFormat(FilesystemLogType::Verbose, "Setting block %u at %u in use: %s", BlockIndex, BlockIndexToAbsoluteOffset(BlockIndex), bInUse ? "true" : "false");
-	}
-
-	// Load the existing block buffer
-	FsBitArray BlockBuffer;
-	BlockBuffer.FillZeroed(GetBlockBufferSizeBytes());
-
-	const FilesystemReadResult ReadResult = Read(GetBlockBufferOffset(), GetBlockBufferSizeBytes(), BlockBuffer.GetInternalArray().GetData());
-	if (ReadResult != FilesystemReadResult::Success)
-	{
-		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to read block buffer. Ensure `Read` is implemented correctly.");
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get UsedBlocks");
 		return;
 	}
 
+	const uint64 ExpectedUsedBlocks = bInUse ? UsedBlocks + BlockIndices.Length() : UsedBlocks - BlockIndices.Length();
+
+	/*for (uint64 BlockIndex : BlockIndices)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Verbose, "Setting block %u at %u in use: %s", BlockIndex, BlockIndexToAbsoluteOffset(BlockIndex), bInUse ? "true" : "false");
+	}*/
+
+	// Load the existing block buffer
+	FsBitArray BlockBuffer = ReadBlockBuffer();
+
 	for (uint64 BlockIndex : BlockIndices)
 	{
+		// Check the block is not what we are setting it to
+		if (BlockBuffer.GetBit(BlockIndex) == bInUse)
+		{
+			FsLogger::LogFormat(FilesystemLogType::Warning, "Block %u is already %s", BlockIndex, bInUse ? "in use" : "free");
+			continue;
+		}
+
 		// Set the block in use
 		BlockBuffer.SetBit(BlockIndex, bInUse);
+		fsCheck(BlockBuffer.GetBit(BlockIndex) == bInUse, "Failed to set block in use");
 	}
 
 	// Write the block back
@@ -1008,6 +1032,17 @@ void FsFilesystem::SetBlocksInUse(const FsBlockArray& BlockIndices, bool bInUse)
 	if (WriteResult != FilesystemWriteResult::Success)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to write block buffer. Ensure `Write` is implemented correctly.");
+	}
+
+	if (!GetUsedBlocksCount(UsedBlocks))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get UsedBlocks");
+		return;
+	}
+
+	if (UsedBlocks != ExpectedUsedBlocks)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to correctly set blocks in use. Expected %u used blocks, got %u used blocks", ExpectedUsedBlocks, UsedBlocks);
 	}
 }
 
@@ -1041,18 +1076,10 @@ FsBitArray FsFilesystem::ReadBlockBuffer()
 
 FsBlockArray FsFilesystem::GetFreeBlocks(uint64 NumBlocks)
 {
-	FsBitArray BlockBuffer;
-	BlockBuffer.FillZeroed(GetBlockBufferSizeBytes());
-
-	const FilesystemReadResult ReadResult = Read(GetBlockBufferOffset(), GetBlockBufferSizeBytes(), BlockBuffer.GetInternalArray().GetData());
-	if (ReadResult != FilesystemReadResult::Success)
-	{
-		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to read block buffer. Ensure `Read` is implemented correctly.");
-		return FsBlockArray();
-	}
+	FsBitArray BlockBuffer = ReadBlockBuffer();
 	
 	// Calculate the minimum block index that we should skip to avoid the block buffer.
-	const uint64 MinBlockIndex = GetBlockBufferSizeBytes() / BlockSize;
+	const uint64 MinBlockIndex = GetContentStartOffset() / BlockSize;
 
 	FsBlockArray FreeBlocks = FsBlockArray();
 	uint64 NumFreeBlocks = 0;
@@ -1422,14 +1449,86 @@ void FsFilesystem::LogAllFiles_Internal(const FsDirectoryDescriptor& CurrentDire
 	}
 }
 
-bool FsFilesystem::DeleteDirectory(const FsPath& DirectoryName)
+bool FsFilesystem::FsDeleteDirectory(const FsPath& DirectoryName)
 {
 	return false;
 }
 
-bool FsFilesystem::DeleteFile(const FsPath& FileName)
+bool FsFilesystem::FsDeleteFile(const FsPath& FileName)
 {
-	return false;
+	const FsPath NormalizedPath = FileName.NormalizePath();
+	const FsPath NormalizedFileName = NormalizedPath.GetLastPath();
+	const FsPath NormalizedDirectoryPath = NormalizedPath.GetPathWithoutFileName();
+
+	FsDirectoryDescriptor Directory;
+	FsFileDescriptor DirectoryFile;
+	if (!GetDirectory(NormalizedDirectoryPath, Directory, &DirectoryFile))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get directory %s", NormalizedDirectoryPath.GetData());
+		return false;
+	}
+
+	uint64 FileIndex = 0;
+	bool bFoundFile = false;
+	for (uint64 i = 0; i < Directory.Files.Length(); i++)
+	{
+		const FsFileDescriptor& File = Directory.Files[i];
+		if (File.FileName == NormalizedFileName)
+		{
+			FileIndex = i;
+			bFoundFile = true;
+			break;
+		}
+	}
+
+	if (!bFoundFile)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to find file %s in directory %s", NormalizedFileName.GetData(), NormalizedDirectoryPath.GetData());
+		return false;
+	}
+
+	const FsFileDescriptor& File = Directory.Files[FileIndex];
+	if (File.bIsDirectory)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Cannot delete directory %s using FsDeleteFile", NormalizedFileName.GetData());
+		return false;
+	}
+
+	// Get all chunks for the file
+	const FsArray<FsFileChunkHeader> AllChunks = GetAllChunksForFile(NormalizedPath, File);
+
+	// Combine all blocks into an array for freeing
+	FsBlockArray FileBlocks = FsBlockArray();
+	for (const FsFileChunkHeader& Chunk : AllChunks)
+	{
+		for (uint64 i = 0; i < Chunk.Blocks; i++)
+		{
+			if (Chunk.NextBlockIndex == 0)
+			{
+				// Last block
+				break;
+			}
+			FileBlocks.Add(Chunk.NextBlockIndex);
+		}
+	}
+
+	// Free the blocks
+	SetBlocksInUse(FileBlocks, false);
+
+	// Remove the file from the directory
+	Directory.Files.RemoveAt(FileIndex);
+
+	// Resave the directory
+	if (!SaveDirectory(Directory, DirectoryFile.FileOffset))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to save directory %s", NormalizedDirectoryPath.GetData());
+		return false;
+	}
+
+	// Clear the cached chunks
+	ClearCachedChunks(NormalizedPath);
+
+	return true;
 }
 
 bool FsFilesystem::FsMoveFile(const FsPath& SourceFileName, const FsPath& DestinationFileName)
@@ -1586,7 +1685,7 @@ bool FsFilesystem::GetTotalAndFreeBytes(uint64& OutTotalBytes, uint64& OutFreeBy
 	}
 
 	// Calculate the minimum block index that we should skip to avoid the block buffer.
-	const uint64 MinBlockIndex = GetBlockBufferSizeBytes() / BlockSize;
+	const uint64 MinBlockIndex = GetContentStartOffset() / BlockSize;
 
 	FsLogger::LogFormat(FilesystemLogType::Info, "BlockBuffer Length %i", BlockBuffer.BitLength());
 	for (uint64 i = MinBlockIndex; i < BlockBuffer.BitLength(); i++)

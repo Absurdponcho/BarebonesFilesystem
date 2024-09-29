@@ -134,8 +134,8 @@ public:
 	bool CreateDirectory(const FsPath& InDirectoryName);
 	bool WriteToFile(const FsPath& InPath, const uint8* Source, uint64 InOffset, uint64 InLength);
 	bool ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Destination, uint64 Length, uint64* OutBytesRead = nullptr);
-	bool DeleteDirectory(const FsPath& DirectoryName);
-	bool DeleteFile(const FsPath& FileName);
+	bool FsDeleteDirectory(const FsPath& DirectoryName);
+	bool FsDeleteFile(const FsPath& FileName);
 	bool FsMoveFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
 	bool CopyFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
 	bool GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescriptor& OutDirectoryDescriptor, FsFileDescriptor* OutDirectoryFile = nullptr);
@@ -143,6 +143,10 @@ public:
 	bool GetFile(const FsPath& InFileName, FsFileDescriptor& OutFileDescriptor);
 	bool GetFileSize(const FsPath& InFileName, uint64& OutFileSize);
 	bool GetTotalAndFreeBytes(uint64& OutTotalBytes, uint64& OutFreeBytes);
+	uint64 GetTotalUsableSpace()
+	{
+		return GetContentEndOffset() - GetContentStartOffset();
+	}
 
 	void LogAllFiles();
 
@@ -186,6 +190,7 @@ protected:
 	void ClearBlockBuffer();
 	FsBitArray ReadBlockBuffer();
 	FsBlockArray GetFreeBlocks(uint64 NumBlocks);
+	bool GetUsedBlocksCount(uint64& OutUsedBlocks);
 
 	FsDirectoryDescriptor ReadFileAsDirectory(const FsFileDescriptor& FileDescriptor);
 	bool SaveDirectory(const FsDirectoryDescriptor& Directory, uint64 AbsoluteOffset);
@@ -197,20 +202,33 @@ protected:
 
 	// The size of the buffer needed to store 1 bit per block in the partition.
 	// This is used to track which blocks are free or in use.
-	uint64 GetBlockBufferSizeBytes(bool bPadToBlockSize = false) const
+	uint64 GetBlockBufferSizeBytes() const
 	{
 		const uint64 BitAmount = GetBlockBufferSizeBits();
 		const uint64 ByteAmount = BitAmount % 8 == 0 ? BitAmount / 8 : BitAmount / 8 + 1;
-		if (!bPadToBlockSize)
+		return ByteAmount;
+	}
+
+	uint64 GetContentStartOffset() const
+	{
+		const uint64 BlockBufferOffset = GetBlockBufferOffset();
+		uint64 BlockBufferByteSize = GetBlockBufferSizeBytes();
+		// pad to the next block
+		if (BlockBufferByteSize % BlockSize != 0)
 		{
-			return ByteAmount;
+			BlockBufferByteSize += BlockSize - (BlockBufferByteSize % BlockSize);
 		}
-		// round up to the nearest BlockSize
-		if (ByteAmount % BlockSize == 0)
+		return BlockBufferOffset + BlockBufferByteSize;
+	}
+
+	uint64 GetContentEndOffset() const
+	{
+		// The partition size might not be aligned to the block size, so we need to align it DOWNWARDS to the block size.
+		if (PartitionSize % BlockSize != 0)
 		{
-			return ByteAmount;
+			return PartitionSize - (PartitionSize % BlockSize);
 		}
-		return ((ByteAmount / BlockSize) + 1) * BlockSize;
+		return PartitionSize;
 	}
 
 	uint64 GetBlockBufferSizeBits() const
@@ -227,11 +245,6 @@ protected:
 			return BlockSize;
 		}
 		return FS_HEADER_MAXSIZE;
-	}
-
-	uint64 GetUsablePartitionOffset() const
-	{
-		return GetBlockBufferOffset() + GetBlockBufferSizeBytes();
 	}
 
 	uint64 BlockIndexToAbsoluteOffset(uint64 BlockIndex) const
