@@ -965,16 +965,6 @@ void FsFilesystem::LoadOrCreateFilesystemHeader()
 	RootDirectory = FilesystemHeader.RootDirectory;
 	RootDirectory.bDirectoryIsRoot = true;
 	FsLogger::LogFormat(FilesystemLogType::Verbose, "Filesystem header loaded successfully");
-
-	// List the amount of root files and then list them in a comma separated list.
-	FsLogger::LogFormat(FilesystemLogType::Verbose, "Root directory has %u files", FilesystemHeader.RootDirectory.Files.Length());
-	FsString RootFilesList = "";
-	for (const FsFileDescriptor& File : FilesystemHeader.RootDirectory.Files)
-	{
-		RootFilesList.Append(File.FileName);
-		RootFilesList.Append(", ");
-	}
-	FsLogger::LogFormat(FilesystemLogType::Verbose, "Root directory files: %s", RootFilesList.GetData());
 }
 
 bool FsFilesystem::GetUsedBlocksCount(uint64& OutUsedBlocks)
@@ -1451,7 +1441,103 @@ void FsFilesystem::LogAllFiles_Internal(const FsDirectoryDescriptor& CurrentDire
 
 bool FsFilesystem::FsDeleteDirectory(const FsPath& DirectoryName)
 {
-	return false;
+	const FsPath NormalizedPath = DirectoryName.NormalizePath();
+	if (!FsIsDirectoryEmpty(DirectoryName))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Cannot delete non-empty directory %s", NormalizedPath.GetData());
+		return false;
+	}
+
+	const FsPath NormalizedDirectoryName = NormalizedPath.GetLastPath();
+	const FsPath NormalizedParentDirectoryPath = NormalizedPath.GetPathWithoutFileName();
+
+	FsDirectoryDescriptor ParentDirectory;
+	FsFileDescriptor DirectoryFile;
+	if (!GetDirectory(NormalizedParentDirectoryPath, ParentDirectory, &DirectoryFile))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get parent directory %s", NormalizedParentDirectoryPath.GetData());
+		return false;
+	}
+
+	uint64 DirectoryIndex = 0;
+	bool bFoundDirectory = false;
+	for (uint64 i = 0; i < ParentDirectory.Files.Length(); i++)
+	{
+		const FsFileDescriptor& File = ParentDirectory.Files[i];
+		if (File.FileName == NormalizedDirectoryName)
+		{
+			DirectoryIndex = i;
+			bFoundDirectory = true;
+			break;
+		}
+	}
+
+	if (!bFoundDirectory)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to find directory %s in parent directory %s", NormalizedDirectoryName.GetData(), NormalizedParentDirectoryPath.GetData());
+		return false;
+	}
+
+	const FsFileDescriptor& DirectoryFileDescriptor = ParentDirectory.Files[DirectoryIndex];
+	if (!DirectoryFileDescriptor.bIsDirectory)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Cannot delete file %s using FsDeleteDirectory", NormalizedDirectoryName.GetData());
+		return false;
+	}
+
+	// Get all chunks for the directory
+	const FsArray<FsFileChunkHeader> AllChunks = GetAllChunksForFile(NormalizedPath, DirectoryFileDescriptor);
+
+	if (!AllChunks.IsEmpty())
+	{
+		// Combine all blocks into an array for freeing
+		FsBlockArray DirectoryBlocks = FsBlockArray();
+		DirectoryBlocks.Add(AbsoluteOffsetToBlockIndex(DirectoryFileDescriptor.FileOffset));
+		for (const FsFileChunkHeader& Chunk : AllChunks)
+		{
+			for (uint64 i = 0; i < Chunk.Blocks; i++)
+			{
+				if (Chunk.NextBlockIndex == 0)
+				{
+					// Last block
+					break;
+				}
+				DirectoryBlocks.Add(Chunk.NextBlockIndex);
+			}
+		}
+
+		// Free the blocks
+		SetBlocksInUse(DirectoryBlocks, false);
+	}
+
+	// Remove the directory from the parent directory
+	ParentDirectory.Files.RemoveAt(DirectoryIndex);
+
+	// Resave the parent directory
+	if (!SaveDirectory(ParentDirectory, DirectoryFile.FileOffset))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to save parent directory %s", NormalizedParentDirectoryPath.GetData());
+		return false;
+	}
+
+	// Clear the cached chunks
+	ClearCachedChunks(NormalizedPath);
+
+	return true;
+}
+
+bool FsFilesystem::FsIsDirectoryEmpty(const FsPath& DirectoryName)
+{
+	const FsPath NormalizedPath = DirectoryName.NormalizePath();
+
+	FsDirectoryDescriptor DirectoryDescriptor;
+	if (!GetDirectory(NormalizedPath, DirectoryDescriptor))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "FsFindFiles: GlobalFilesystem is null");
+		return false;
+	}
+
+	return DirectoryDescriptor.Files.IsEmpty();
 }
 
 bool FsFilesystem::FsDeleteFile(const FsPath& FileName)
@@ -1497,23 +1583,27 @@ bool FsFilesystem::FsDeleteFile(const FsPath& FileName)
 	// Get all chunks for the file
 	const FsArray<FsFileChunkHeader> AllChunks = GetAllChunksForFile(NormalizedPath, File);
 
-	// Combine all blocks into an array for freeing
-	FsBlockArray FileBlocks = FsBlockArray();
-	for (const FsFileChunkHeader& Chunk : AllChunks)
+	if (!AllChunks.IsEmpty())
 	{
-		for (uint64 i = 0; i < Chunk.Blocks; i++)
+		// Combine all blocks into an array for freeing
+		FsBlockArray FileBlocks = FsBlockArray();
+		FileBlocks.Add(AbsoluteOffsetToBlockIndex(File.FileOffset));
+		for (const FsFileChunkHeader& Chunk : AllChunks)
 		{
-			if (Chunk.NextBlockIndex == 0)
+			for (uint64 i = 0; i < Chunk.Blocks; i++)
 			{
-				// Last block
-				break;
+				if (Chunk.NextBlockIndex == 0)
+				{
+					// Last block
+					break;
+				}
+				FileBlocks.Add(Chunk.NextBlockIndex);
 			}
-			FileBlocks.Add(Chunk.NextBlockIndex);
 		}
-	}
 
-	// Free the blocks
-	SetBlocksInUse(FileBlocks, false);
+		// Free the blocks
+		SetBlocksInUse(FileBlocks, false);
+	}
 
 	// Remove the file from the directory
 	Directory.Files.RemoveAt(FileIndex);
@@ -1624,12 +1714,6 @@ bool FsFilesystem::FsMoveFile(const FsPath& SourceFileName, const FsPath& Destin
 		}
 	}
 
-	// Log all files in DestinationDirectory
-	for (const FsFileDescriptor& File : DestinationDirectory.Files)
-	{
-		FsLogger::LogFormat(FilesystemLogType::Info, "Destination directory %s has file %s", NormalizedDestinationDirectoryPath.GetData(), File.FileName.GetData());
-	}
-
 	ClearCachedChunks(NormalizedSourcePath);
 	ClearCachedChunks(NormalizedDestinationPath);
 
@@ -1687,7 +1771,6 @@ bool FsFilesystem::GetTotalAndFreeBytes(uint64& OutTotalBytes, uint64& OutFreeBy
 	// Calculate the minimum block index that we should skip to avoid the block buffer.
 	const uint64 MinBlockIndex = GetContentStartOffset() / BlockSize;
 
-	FsLogger::LogFormat(FilesystemLogType::Info, "BlockBuffer Length %i", BlockBuffer.BitLength());
 	for (uint64 i = MinBlockIndex; i < BlockBuffer.BitLength(); i++)
 	{
 		if (!BlockBuffer.GetBit(i))

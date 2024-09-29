@@ -135,6 +135,7 @@ public:
 	bool WriteToFile(const FsPath& InPath, const uint8* Source, uint64 InOffset, uint64 InLength);
 	bool ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Destination, uint64 Length, uint64* OutBytesRead = nullptr);
 	bool FsDeleteDirectory(const FsPath& DirectoryName);
+	bool FsIsDirectoryEmpty(const FsPath& DirectoryName);
 	bool FsDeleteFile(const FsPath& FileName);
 	bool FsMoveFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
 	bool CopyFile(const FsPath& SourceFileName, const FsPath& DestinationFileName);
@@ -252,6 +253,14 @@ protected:
 		const uint64 Result = GetBlockBufferOffset() + BlockIndex * BlockSize;
 		// Sanity check its aligned to block size
 		fsCheck(Result % BlockSize == 0, "Block index is not aligned to block size");
+		return Result;
+	}
+
+	uint64 AbsoluteOffsetToBlockIndex(uint64 AbsoluteOffset) const
+	{
+		fsCheck(AbsoluteOffset >= GetBlockBufferOffset(), "Absolute offset is before the block buffer");
+		fsCheck(AbsoluteOffset % BlockSize == 0, "Absolute offset must be aligned to the block size");
+		const uint64 Result = (AbsoluteOffset - GetBlockBufferOffset()) / BlockSize;
 		return Result;
 	}
 

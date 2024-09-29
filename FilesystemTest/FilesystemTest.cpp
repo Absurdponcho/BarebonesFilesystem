@@ -240,7 +240,8 @@ void DOKAN_CALLBACK FsCloseFile(LPCWSTR FileName,
 		return;
 	}
 
-	if (!DokanFileInfo->DeleteOnClose)
+	if (!DokanFileInfo->DeleteOnClose || 
+		(!GlobalFilesystem->FileExists(FileNameString) && !GlobalFilesystem->DirectoryExists(FileNameString)))
 	{
 		return;
 	}
@@ -440,7 +441,6 @@ NTSTATUS DOKAN_CALLBACK FsFindFiles(LPCWSTR FileName,
 	FsDirectoryDescriptor DirectoryDescriptor;
 	if (!GlobalFilesystem->GetDirectory(FileNameString, DirectoryDescriptor))
 	{
-		FsLogger::LogFormat(FilesystemLogType::Error, "FsFindFiles: GlobalFilesystem is null");
 		return STATUS_OBJECT_NAME_NOT_FOUND;
 	}
 
@@ -553,6 +553,11 @@ NTSTATUS DOKAN_CALLBACK FsDeleteDirectory(LPCWSTR FileName,
 	}
 
 	FsLogger::LogFormat(FilesystemLogType::Info, "DeleteDirectory: %s", FileNameString.GetData());	
+	if (!GlobalFilesystem->FsIsDirectoryEmpty(FileNameString))
+	{
+		return STATUS_DIRECTORY_NOT_EMPTY;
+	}
+
 	if (!GlobalFilesystem->FsDeleteDirectory(FileNameString))
 	{
 		return STATUS_NO_SUCH_FILE;
