@@ -6,6 +6,8 @@
 #elif defined(_MSC_VER)
 #define HAS_DEBUG_BREAK 1
 #endif
+#else
+#include "config.h"
 #endif
 
 void CheckImplementer::Check(const char* Message)

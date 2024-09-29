@@ -6,11 +6,11 @@
 
 #ifdef CMAKE
 #include "config.h"
-#elif defined(WIN32)
+#elif defined(_WIN32)
 #define HAS_STRERROR_S 1
 #endif
 
-#ifdef WIN32
+#ifdef _WIN32
 #include <Windows.h>
 #endif
 
