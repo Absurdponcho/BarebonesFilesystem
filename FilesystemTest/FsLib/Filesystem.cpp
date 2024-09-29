@@ -256,7 +256,6 @@ bool FsFilesystem::GetFile(const FsPath& InFileName, FsFileDescriptor& OutFileDe
 bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64 InOffset, uint64 InLength)
 {
 	const FsPath NormalizedPath = InPath.NormalizePath();
-	ClearCachedChunks(InPath);
 
 	if (!FileExists(NormalizedPath))
 	{
@@ -284,11 +283,10 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 
 		// Get all the chunks for the file
 		FsArray<FsFileChunkHeader> AllChunks = GetAllChunksForFile(NormalizedPath ,File);
+		ClearCachedChunks(InPath);
 
 		const uint64 MaxWriteLength = InOffset + InLength;
 		const uint64 AllocatedSpace = GetAllocatedSpaceInFileChunks(AllChunks);
-
-		bool bResaveAllChunks = true;
 
 		if (MaxWriteLength > AllocatedSpace)
 		{
@@ -312,6 +310,8 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 
 			SetBlocksInUse(NewBlocks, true);
 
+			FsLogger::LogFormat(FilesystemLogType::Warning, "Allocating %u blocks for file %s", AdditionalBlocks, NormalizedPath.GetData());
+
 			if (AllChunks.IsEmpty())
 			{
 				// This file is empty and has no blocks allocated.
@@ -320,47 +320,27 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 			}
 			else
 			{
-				// Find the last chunk
-				FsFileChunkHeader* LastChunk = nullptr;
-				for (FsFileChunkHeader& Chunk : AllChunks)
-				{
-					if (Chunk.NextBlockIndex == 0)
-					{
-						LastChunk = &Chunk;
-						break;
-					}
-				}
-
-				if (LastChunk == nullptr)
-				{
-					FsLogger::LogFormat(FilesystemLogType::Error, "Failed to find last chunk for file %s", NormalizedPath.GetData());
-					return false;
-				}
-
 				// Update the last chunk to point to the new blocks
-				LastChunk->NextBlockIndex = NewBlocks[0];
+				FsFileChunkHeader& LastChunk = AllChunks[AllChunks.Length() - 1];
+				LastChunk.NextBlockIndex = NewBlocks[0];
 
-				// Write the last chunk back to the file
+				// Save the last chunk
 				const uint64 LastChunkOffset = AllChunks.Length() > 1 ? BlockIndexToAbsoluteOffset(AllChunks[AllChunks.Length() - 2].NextBlockIndex) : File.FileOffset;
-
 				FsBitArray LastChunkBuffer = FsBitArray();
 				FsBitWriter LastChunkWriter = FsBitWriter(LastChunkBuffer);
-				LastChunk->Serialize(LastChunkWriter);
+				const_cast<FsFileChunkHeader&>(LastChunk).Serialize(LastChunkWriter);
 
 				const FilesystemWriteResult WriteResult = Write(LastChunkOffset, sizeof(FsFileChunkHeader), LastChunkBuffer.GetInternalArray().GetData());
 				if (WriteResult != FilesystemWriteResult::Success)
 				{
-					FsLogger::LogFormat(FilesystemLogType::Error, "Failed to write last chunk for file %s", NormalizedPath.GetData());
+					FsLogger::LogFormat(FilesystemLogType::Error, "Failed to write chunk for file %s", NormalizedPath.GetData());
 					return false;
 				}
-
-				bResaveAllChunks = true;
-
-				// Log the last chunk header
-				FsLogger::LogFormat(FilesystemLogType::Info, "Wrote last chunk at %u with %u blocks pointing to next chunk at %u [%u]", LastChunkOffset, LastChunk->Blocks, LastChunk->NextBlockIndex, BlockIndexToAbsoluteOffset(LastChunk->NextBlockIndex));
 			}
 
-			// Create the new chunks
+			const uint64 PreviousChunksLength = AllChunks.Length();
+
+			// Create the new chunk headers
 			for (uint64 i = 0; i < NewBlocks.Length(); i++)
 			{
 				FsFileChunkHeader NewChunk = FsFileChunkHeader();
@@ -368,6 +348,9 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 				NewChunk.Blocks = 1;
 				AllChunks.Add(NewChunk);
 			}
+
+			// Refresh the cache
+			CacheChunks(NormalizedPath, AllChunks);
 		}
 
 		// Update the file size if we expanded the file
@@ -378,82 +361,70 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 
 		// For each chunk, create a buffer the size of the chunk, read the chunk, update the buffer, write the chunk
 		uint64 BytesWritten = 0;
-		uint64 CurrentOffset = InOffset;
+		uint64 CurrentOffset = 0;
 		uint64 CurrentAbsoluteOffset = File.FileOffset;
-		uint64 RemainingOffset = InOffset;
 		for (const FsFileChunkHeader& Chunk : AllChunks)
 		{
-			// Just read and write one block at a time inside a chunk. The first block has the chunk header so need to skip the sizeof the chunk header.
-			for (uint64 i = 0; i < Chunk.Blocks; i++)
-			{
-				const bool bHasChunkHeader = i == 0;
-				const uint64 FirstChunkOffset = bHasChunkHeader ? sizeof(FsFileChunkHeader) : 0;
-				const uint64 ReadableSize = BlockSize - FirstChunkOffset;
+			const uint64 ChunkSize = Chunk.Blocks * BlockSize;
+			const uint64 ChunkHeaderOffset = CurrentAbsoluteOffset;
+			const uint64 ChunkHeaderLength = sizeof(FsFileChunkHeader);
+			const uint64 ChunkContentLength = ChunkSize - ChunkHeaderLength;
+			const uint64 ChunkContentOffset = CurrentAbsoluteOffset + ChunkHeaderLength;
 
-				if (RemainingOffset > ReadableSize)
+			if (CurrentOffset + ChunkSize < InOffset)
+			{
+				// Skip this chunk
+				CurrentOffset += ChunkContentLength;
+				CurrentAbsoluteOffset = BlockIndexToAbsoluteOffset(Chunk.NextBlockIndex);
+				continue;
+			}
+
+			FsArray<uint8> ChunkReadBuffer = FsArray<uint8>();
+			ChunkReadBuffer.FillUninitialized(ChunkSize);
+
+			// Read the whole content portion of the chunk
+			const FilesystemReadResult Result = Read(ChunkContentOffset, ChunkContentLength, ChunkReadBuffer.GetData() + ChunkHeaderLength);
+			if (Result != FilesystemReadResult::Success)
+			{
+				FsLogger::LogFormat(FilesystemLogType::Error, "Failed to read chunk for file %s", NormalizedPath.GetData());
+				return false;
+			}
+
+			// Update the buffer with the new data
+			for (uint64 ChunkByteIndex = sizeof(FsFileChunkHeader); ChunkByteIndex < ChunkSize; ChunkByteIndex++)
+			{
+				if (CurrentOffset < InOffset)
 				{
-					// Skip this block since we are not writing to it
-					RemainingOffset -= ReadableSize;
+					CurrentOffset++;
 					continue;
 				}
+				
+				ChunkReadBuffer[ChunkByteIndex] = Source[BytesWritten];
+				BytesWritten++;
+				CurrentOffset++;
 
-				const uint64 ReadOffset = CurrentAbsoluteOffset + FirstChunkOffset + (i * BlockSize);
-
-				FsBitArray ChunkBuffer{};
-
-				// serialize the chunk header
-				if (bHasChunkHeader)
+				if (BytesWritten >= InLength)
 				{
-					FsBitWriter ChunkWriter = FsBitWriter(ChunkBuffer);
-					const_cast<FsFileChunkHeader&>(Chunk).Serialize(ChunkWriter);
-					ChunkBuffer.AddZeroed(BlockSize - FirstChunkOffset);
+					break;
 				}
-				else
-				{
-					ChunkBuffer.FillZeroed(BlockSize);
-				}
+			}
 
-				// Read the content part of the block
-				const FilesystemReadResult ReadResult = Read(ReadOffset, ReadableSize, ChunkBuffer.GetInternalArray().GetData() + FirstChunkOffset);
-				if (ReadResult != FilesystemReadResult::Success)
-				{
-					FsLogger::LogFormat(FilesystemLogType::Error, "Failed to read chunk for file %s", NormalizedPath.GetData());
-					return false;
-				}
+			// Serialize the chunk header and copy it in
+			FsBitArray ChunkHeaderBuffer = FsBitArray();
+			FsBitWriter ChunkHeaderWriter = FsBitWriter(ChunkHeaderBuffer);
+			const_cast<FsFileChunkHeader&>(Chunk).Serialize(ChunkHeaderWriter);
 
-				// Update the buffer
-				fsCheck(RemainingOffset < ReadableSize, "Remaining offset is larger than the readable size!");
-				for (uint64 j = RemainingOffset; j < ReadableSize; j++)
-				{
-					ChunkBuffer.GetInternalArray().GetData()[j + FirstChunkOffset] = Source[BytesWritten];
-					BytesWritten++;
+			for (uint64 i = 0; i < sizeof(FsFileChunkHeader); i++)
+			{
+				ChunkReadBuffer[i] = ChunkHeaderBuffer.GetInternalArray()[i];
+			}
 
-					CurrentOffset++;
-					if (BytesWritten >= InLength)
-					{
-						break;
-					}
-
-					if (CurrentOffset >= MaxWriteLength)
-					{
-						break;
-					}
-				}
-				RemainingOffset = 0;
-
-				// Write the block
-				const uint64 WriteOffset = CurrentAbsoluteOffset;
-				const uint64 WriteSize = BlockSize;
-
-				const FilesystemWriteResult WriteResult = Write(WriteOffset, WriteSize, ChunkBuffer.GetInternalArray().GetData());
-				if (WriteResult != FilesystemWriteResult::Success)
-				{
-					FsLogger::LogFormat(FilesystemLogType::Error, "Failed to write chunk for file %s", NormalizedPath.GetData());
-					return false;
-				}
-
-				// Log chunk header				
-				//FsLogger::LogFormat(FilesystemLogType::Info, "Wrote chunk at %u with %u blocks pointing to next chunk at %u [%u]", WriteOffset, Chunk.Blocks, Chunk.NextBlockIndex, BlockIndexToAbsoluteOffset(Chunk.NextBlockIndex));
+			// Write the updated buffer back to the chunk
+			const FilesystemWriteResult WriteResult = Write(CurrentAbsoluteOffset, ChunkSize, ChunkReadBuffer.GetData());
+			if (WriteResult != FilesystemWriteResult::Success)
+			{
+				FsLogger::LogFormat(FilesystemLogType::Error, "Failed to write chunk for file %s", NormalizedPath.GetData());
+				return false;
 			}
 
 			CurrentAbsoluteOffset = BlockIndexToAbsoluteOffset(Chunk.NextBlockIndex);
@@ -472,30 +443,7 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 
 		FsLogger::LogFormat(FilesystemLogType::Info, "Wrote to file %s with %u bytes. %u chunks total", NormalizedPath.GetData(), InLength, AllChunks.Length());
 
-		// Resave all chunk headers. TODO: Find out why its broken and I need to resave these
-		if (bResaveAllChunks)
-		{
-			uint64 NextChunkOffset = File.FileOffset;
-			uint64 ChunkIndex = 0;
-			for (const FsFileChunkHeader& Chunk : AllChunks)
-			{
-				//FsLogger::LogFormat(FilesystemLogType::Info, "[%u] Wrote chunk to %u pointing to next chunk at %u [%u]", ChunkIndex, NextChunkOffset, Chunk.NextBlockIndex, BlockIndexToAbsoluteOffset(Chunk.NextBlockIndex));
-				ChunkIndex++;
-
-				// Resave the header
-				FsBitArray ChunkBuffer = FsBitArray();
-				FsBitWriter ChunkWriter = FsBitWriter(ChunkBuffer);
-				const_cast<FsFileChunkHeader&>(Chunk).Serialize(ChunkWriter);
-
-				const FilesystemWriteResult WriteResult = Write(NextChunkOffset, sizeof(FsFileChunkHeader), ChunkBuffer.GetInternalArray().GetData());
-
-				NextChunkOffset = BlockIndexToAbsoluteOffset(Chunk.NextBlockIndex);
-			}
-
-			// Update the cache
-			CacheChunks(NormalizedPath, AllChunks);
-		}
-
+		// Clear the cache for this file
 		const uint64 LoadedChunks = GetAllChunksForFile(NormalizedPath, File).Length();
 
 		if (LoadedChunks != AllChunks.Length())
@@ -576,19 +524,15 @@ bool FsFilesystem::ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Dest
 			const FsFileChunkHeader& CurrentChunk = AllChunks[CurrentChunkIndex];
 			CurrentChunkIndex++;
 
+			const uint64 ChunkSize = CurrentChunk.Blocks * BlockSize;
+			
 			// See if we can skip this chunk
-			if (CurrentOffset + CurrentChunk.Blocks * BlockSize < Offset)
+			if (CurrentOffset + ChunkSize < Offset)
 			{
-				CurrentOffset += CurrentChunk.Blocks * BlockSize - sizeof(FsFileChunkHeader);
+				CurrentOffset += ChunkSize - sizeof(FsFileChunkHeader);
 				CurrentAbsoluteOffset = BlockIndexToAbsoluteOffset(CurrentChunk.NextBlockIndex);
-				//FsLogger::LogFormat(FilesystemLogType::Info, "Skipping chunk at %u with %u blocks pointing to next chunk at %u [%u]", CurrentAbsoluteOffset, CurrentChunk.Blocks, CurrentChunk.NextBlockIndex, BlockIndexToAbsoluteOffset(CurrentChunk.NextBlockIndex));
 				continue;
 			}
-
-			// Log the chunk header
-			//FsLogger::LogFormat(FilesystemLogType::Info, "Read chunk at %u with %u blocks pointing to next chunk at %u [%u]", CurrentAbsoluteOffset, CurrentChunk.Blocks, CurrentChunk.NextBlockIndex, BlockIndexToAbsoluteOffset(CurrentChunk.NextBlockIndex));
-
-			const uint64 ChunkSize = CurrentChunk.Blocks * BlockSize;
 
 			FsArray<uint8> ChunkBuffer = FsArray<uint8>();
 			ChunkBuffer.FillUninitialized(ChunkSize);
