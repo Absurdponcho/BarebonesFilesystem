@@ -456,6 +456,7 @@ public:
 		Empty(true);
 
 		fsCheck(Allocator.GetCapacity() == 0, "Capacity should be 0 after empty");
+		fsCheck(GetData() == nullptr, "Data must be nullptr after emptying");
 
 		FsDirectAllocatorAccessor::SetAllocatorData(&Allocator, Other.Allocator.GetData());
 		FsDirectAllocatorAccessor::SetAllocatorCapacity(&Allocator, Other.Allocator.GetCapacity());

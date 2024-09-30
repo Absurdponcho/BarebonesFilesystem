@@ -160,7 +160,14 @@ public:
 		return PartitionSize;
 	}
 
+	uint64 GetBlockSize() const
+	{
+		return BlockSize;
+	}
+
 protected:
+
+	void ValidateFileWrite(const FsPath& InPath, const uint8* Source, uint64 InOffset, uint64 InLength);
 
 	void LogAllFiles_Internal(const FsDirectoryDescriptor& CurrentDirectory, uint64 Depth);
 

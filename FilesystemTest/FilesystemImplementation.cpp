@@ -235,6 +235,7 @@ void FsLoggerImpl::OutputLog(const char* String, FilesystemLogType LogType)
 #endif
 }
 
+
 void* FsMemoryAllocatorImpl::Allocate(uint64 Size)
 {
 	// malloc

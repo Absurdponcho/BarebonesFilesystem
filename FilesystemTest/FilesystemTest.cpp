@@ -18,10 +18,14 @@ typedef _Return_type_success_(return >= 0) long NTSTATUS;
 #undef CreateFile
 #endif
 
+#include <mutex>
+
 FsFilesystem* GlobalFilesystem = nullptr;
+std::recursive_mutex Mutex;
 
 bool IgnoreFilePath(const FsString & InFilePath)
 {
+	return false;
 	return InFilePath.Contains("git") ||
 		InFilePath.Contains("svn") ||
 		InFilePath.EndsWith("HEAD") ||
@@ -67,6 +71,7 @@ NTSTATUS DOKAN_CALLBACK FsDokanCreateFile(LPCWSTR FileName,
 	ULONG CreateOptions,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
+
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "FsDokanCreateFile: GlobalFilesystem is null");
@@ -88,9 +93,27 @@ NTSTATUS DOKAN_CALLBACK FsDokanCreateFile(LPCWSTR FileName,
 		&generic_desiredaccess, &file_attributes_and_flags,
 		&creation_disposition);
 		
+	std::scoped_lock lock(Mutex);
 	const bool bIsRootDirectory = FileNameString == FsString("\\");
 	const bool bHasExistingDirectory = bIsRootDirectory || GlobalFilesystem->DirectoryExists(FileNameString);
 	const bool bHasExistingFile = GlobalFilesystem->FileExists(FileNameString);
+
+	const char* CreateDispositionString = [&]() -> const char* {
+		switch (creation_disposition)
+		{
+		case CREATE_NEW: return "CREATE_NEW";
+		case CREATE_ALWAYS: return "CREATE_ALWAYS";
+		case OPEN_EXISTING: return "OPEN_EXISTING";
+		case OPEN_ALWAYS: return "OPEN_ALWAYS";
+		case TRUNCATE_EXISTING: return "TRUNCATE_EXISTING";
+		default: return "UNKNOWN";
+		}
+	}();
+
+	if (!bIsRootDirectory)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Info, "CreateFile %s, CreateDisposition %s", FileNameString.GetData(), CreateDispositionString);
+	}
 
 	if (bHasExistingDirectory)
 	{
@@ -219,9 +242,33 @@ void DOKAN_CALLBACK FsCleanup(LPCWSTR FileName,
 		return;
 	}
 
-	if (DokanFileInfo->DeleteOnClose)
+	const bool bIsRootDirectory = FileNameString == FsString("\\");
+	if (bIsRootDirectory)
 	{
-		FsLogger::LogFormat(FilesystemLogType::Info, "CloseFile %s Delete on close", FileNameString.GetData());
+		return;
+	}
+
+	std::scoped_lock lock(Mutex);
+	if (!DokanFileInfo->DeleteOnClose ||
+		(!GlobalFilesystem->FileExists(FileNameString) && !GlobalFilesystem->DirectoryExists(FileNameString)))
+	{
+		return;
+	}
+	FsLogger::LogFormat(FilesystemLogType::Info, "Cleanup %s Delete on close", FileNameString.GetData());	
+
+	if (DokanFileInfo->IsDirectory)
+	{
+		if (!GlobalFilesystem->FsDeleteDirectory(FileNameString))
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to delete directory: %s", FileNameString.GetData());
+		}
+	}
+	else
+	{
+		if (!GlobalFilesystem->FsDeleteFile(FileNameString))
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to delete file: %s", FileNameString.GetData());
+		}
 	}
 }
 
@@ -240,7 +287,14 @@ void DOKAN_CALLBACK FsCloseFile(LPCWSTR FileName,
 		return;
 	}
 
-	if (!DokanFileInfo->DeleteOnClose || 
+	const bool bIsRootDirectory = FileNameString == FsString("\\");
+	if (bIsRootDirectory)
+	{
+		return;
+	}
+
+	std::scoped_lock lock(Mutex);
+	if (!DokanFileInfo->DeleteOnClose ||
 		(!GlobalFilesystem->FileExists(FileNameString) && !GlobalFilesystem->DirectoryExists(FileNameString)))
 	{
 		return;
@@ -283,6 +337,7 @@ NTSTATUS DOKAN_CALLBACK FsReadFile(LPCWSTR FileName,
 		return STATUS_NOT_IMPLEMENTED;
 	}
 
+	std::scoped_lock lock(Mutex);
 	uint64 FileSize = 0;
 	if (!GlobalFilesystem->GetFileSize(FileNameString, FileSize))
 	{
@@ -310,18 +365,20 @@ NTSTATUS DOKAN_CALLBACK FsWriteFile(LPCWSTR FileName,
 	LONGLONG Offset,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	const FsString FileNameString = LPCWSTRToFsString(FileName);
-	if (IgnoreFilePath(FileNameString))
-	{
-		return STATUS_NO_SUCH_FILE;
-	}
-	FsLogger::LogFormat(FilesystemLogType::Info, "WriteFile: %s", FileNameString.GetData());
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
 		return STATUS_NOT_IMPLEMENTED;
 	}
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
 
+	FsLogger::LogFormat(FilesystemLogType::Info, "WriteFile: %s", FileNameString.GetData());
+
+	std::scoped_lock lock(Mutex);
 	if (!GlobalFilesystem->WriteToFile(FileNameString, reinterpret_cast<const uint8*>(Buffer), Offset, NumberOfBytesToWrite))
 	{
 		return STATUS_NO_SUCH_FILE;
@@ -337,7 +394,12 @@ NTSTATUS DOKAN_CALLBACK FsWriteFile(LPCWSTR FileName,
 NTSTATUS DOKAN_CALLBACK FsFlushFileBuffers(LPCWSTR FileName,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "FlushFileBuffers: %s", FileName);
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+	FsLogger::LogFormat(FilesystemLogType::Info, "FlushFileBuffers: %s", FileNameString.GetData());
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
@@ -350,6 +412,12 @@ NTSTATUS DOKAN_CALLBACK FsGetFileInformation(LPCWSTR FileName,
 	LPBY_HANDLE_FILE_INFORMATION HandleFileInformation,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
+	if (!GlobalFilesystem)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "FsGetFileInformation: GlobalFilesystem is null");
+		return STATUS_NOT_IMPLEMENTED;
+	}
+
 	const FsString FileNameString = LPCWSTRToFsString(FileName);
 	if (IgnoreFilePath(FileNameString))
 	{
@@ -363,13 +431,7 @@ NTSTATUS DOKAN_CALLBACK FsGetFileInformation(LPCWSTR FileName,
 		return STATUS_SUCCESS;
 	}
 
-
-	if (!GlobalFilesystem)
-	{
-		FsLogger::LogFormat(FilesystemLogType::Error, "FsGetFileInformation: GlobalFilesystem is null");
-		return STATUS_NOT_IMPLEMENTED;
-	}
-
+	std::scoped_lock lock(Mutex);
 	if (DokanFileInfo->IsDirectory)
 	{
 		FsDirectoryDescriptor DirectoryDescriptor;
@@ -380,8 +442,9 @@ NTSTATUS DOKAN_CALLBACK FsGetFileInformation(LPCWSTR FileName,
 		}
 
 		HandleFileInformation->dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
-		HandleFileInformation->nFileSizeHigh = 0;
-		HandleFileInformation->nFileSizeLow = 0;
+		const uint64 FileSize = GlobalFilesystem->GetBlockSize();
+		HandleFileInformation->nFileSizeHigh = (FileSize >> 32) & 0xFFFFFFFF;
+		HandleFileInformation->nFileSizeLow = FileSize & 0xFFFFFFFF;
 		HandleFileInformation->dwVolumeSerialNumber = 0x19831116;
 		HandleFileInformation->nNumberOfLinks = 1;
 
@@ -396,6 +459,8 @@ NTSTATUS DOKAN_CALLBACK FsGetFileInformation(LPCWSTR FileName,
 		HandleFileInformation->ftCreationTime = { 0 };
 		HandleFileInformation->ftLastAccessTime = { 0 };
 		HandleFileInformation->ftLastWriteTime = { 0 };
+
+		FsLogger::LogFormat(FilesystemLogType::Info, "FsGetFileInformation: %s [Directory]", FileNameString.GetData());
 	}
 	else
 	{
@@ -422,6 +487,8 @@ NTSTATUS DOKAN_CALLBACK FsGetFileInformation(LPCWSTR FileName,
 		HandleFileInformation->ftCreationTime = { 0 };
 		HandleFileInformation->ftLastAccessTime = { 0 };
 		HandleFileInformation->ftLastWriteTime = { 0 };
+
+		FsLogger::LogFormat(FilesystemLogType::Info, "FsGetFileInformation: %s [File] Size: %u", FileNameString.GetData(), FileDescriptor.FileSize);
 	}
 
 	return STATUS_SUCCESS;
@@ -438,6 +505,7 @@ NTSTATUS DOKAN_CALLBACK FsFindFiles(LPCWSTR FileName,
 	}
 	//FsLogger::LogFormat(FilesystemLogType::Info, "FindFiles: %s", FileNameString.GetData());
 
+	std::scoped_lock lock(Mutex);
 	FsDirectoryDescriptor DirectoryDescriptor;
 	if (!GlobalFilesystem->GetDirectory(FileNameString, DirectoryDescriptor))
 	{
@@ -489,7 +557,12 @@ NTSTATUS DOKAN_CALLBACK FsSetFileAttributes(LPCWSTR FileName,
 	DWORD FileAttributes,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "SetFileAttributes: %s", FileName);
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+	FsLogger::LogFormat(FilesystemLogType::Info, "SetFileAttributes: %s", FileNameString.GetData());
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
@@ -504,7 +577,12 @@ NTSTATUS DOKAN_CALLBACK FsSetFileTime(LPCWSTR FileName,
 	CONST FILETIME* LastWriteTime,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "SetFileTime: %s", FileName);
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+	FsLogger::LogFormat(FilesystemLogType::Info, "SetFileTime: %s", FileNameString.GetData());
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
@@ -528,10 +606,17 @@ NTSTATUS DOKAN_CALLBACK FsDeleteFile(LPCWSTR FileName,
 		return STATUS_NO_SUCH_FILE;
 	}
 
+	std::scoped_lock lock(Mutex);
+	FsDirectoryDescriptor DirectoryDescriptor;
+	if (GlobalFilesystem->GetDirectory(FileNameString, DirectoryDescriptor))
+	{
+		return STATUS_ACCESS_DENIED;
+	}
+
 	FsLogger::LogFormat(FilesystemLogType::Info, "DeleteFile: %s", FileNameString.GetData());
 	if (!GlobalFilesystem->FsDeleteFile(FileNameString))
 	{
-		return STATUS_NO_SUCH_FILE;
+		return STATUS_OBJECT_NAME_NOT_FOUND;
 	}
 
 	return STATUS_SUCCESS;
@@ -552,7 +637,8 @@ NTSTATUS DOKAN_CALLBACK FsDeleteDirectory(LPCWSTR FileName,
 		return STATUS_NO_SUCH_FILE;
 	}
 
-	FsLogger::LogFormat(FilesystemLogType::Info, "DeleteDirectory: %s", FileNameString.GetData());	
+	std::scoped_lock lock(Mutex);
+	FsLogger::LogFormat(FilesystemLogType::Info, "DeleteDirectory: %s", FileNameString.GetData());
 	if (!GlobalFilesystem->FsIsDirectoryEmpty(FileNameString))
 	{
 		return STATUS_DIRECTORY_NOT_EMPTY;
@@ -588,14 +674,29 @@ NTSTATUS DOKAN_CALLBACK FsMoveFile(LPCWSTR FileName, // existing file name
 		return STATUS_NO_SUCH_FILE;
 	}
 
+	FsLogger::LogFormat(FilesystemLogType::Info, "MoveFile: %s to %s", FromFileNameString.GetData(), ToFileNameString.GetData());
+
+	std::scoped_lock lock(Mutex);
 	const bool bDestinationExists = GlobalFilesystem->FileExists(ToFileNameString) || GlobalFilesystem->DirectoryExists(ToFileNameString);
 	if (bDestinationExists)
 	{
-		return STATUS_ACCESS_DENIED;
+		if (!ReplaceIfExisting)
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to move file, destination already exists");
+			return STATUS_OBJECT_NAME_COLLISION;
+		}
+		
+		// Delete the destination file
+		if (!GlobalFilesystem->FsDeleteFile(ToFileNameString))
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "Failed to delete destination file");
+			return STATUS_NO_SUCH_FILE;
+		}		
 	}
 
 	if (!GlobalFilesystem->FsMoveFile(FromFileNameString, ToFileNameString))
 	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to move file");
 		return STATUS_NO_SUCH_FILE;
 	}
 
@@ -606,12 +707,44 @@ NTSTATUS DOKAN_CALLBACK FsSetEndOfFile(LPCWSTR FileName,
 	LONGLONG ByteOffset,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "SetEndOfFile: %s", FileName);
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
 		return STATUS_NOT_IMPLEMENTED;
 	}
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+	FsLogger::LogFormat(FilesystemLogType::Info, "SetEndOfFile: %s to %u", FileNameString.GetData(), static_cast<uint64>(ByteOffset));
+
+	std::scoped_lock lock(Mutex);
+	// Get the file size
+	uint64 FileSize = 0;
+	if (!GlobalFilesystem->GetFileSize(FileNameString, FileSize))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "Failed to get file size");
+		return STATUS_NO_SUCH_FILE;
+	}
+
+	// Calculate the amount of bytes to add
+	uint64 BytesToAdd = ByteOffset - FileSize;
+	if (BytesToAdd == 0)
+	{
+		return STATUS_SUCCESS;
+	}
+
+	// Create a buffer to hold zeroed bytes
+	FsArray<uint8> ZeroedBytes = FsArray<uint8>();
+	ZeroedBytes.FillZeroed(BytesToAdd);
+
+	// Write the zeroed bytes to the file	
+	if (!GlobalFilesystem->WriteToFile(FileNameString, ZeroedBytes.GetData(), FileSize, BytesToAdd))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+
 	return STATUS_SUCCESS;
 }
 
@@ -619,7 +752,12 @@ NTSTATUS DOKAN_CALLBACK FsSetAllocationSize(LPCWSTR FileName,
 	LONGLONG AllocSize,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "SetAllocationSize: %s", FileName);
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+	FsLogger::LogFormat(FilesystemLogType::Info, "SetAllocationSize: %s to %u", FileNameString.GetData(), static_cast<uint64>(AllocSize));
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
@@ -633,7 +771,12 @@ NTSTATUS DOKAN_CALLBACK FsLockFile(LPCWSTR FileName,
 	LONGLONG Length,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "LockFile: %s", FileName);
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+	FsLogger::LogFormat(FilesystemLogType::Info, "LockFile: %s", FileNameString.GetData());
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
@@ -647,7 +790,12 @@ NTSTATUS DOKAN_CALLBACK FsUnlockFile(LPCWSTR FileName,
 	LONGLONG Length,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "UnlockFile: %s", FileName);
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		return STATUS_NO_SUCH_FILE;
+	}
+	FsLogger::LogFormat(FilesystemLogType::Info, "UnlockFile: %s", FileNameString.GetData());
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
@@ -668,6 +816,7 @@ NTSTATUS DOKAN_CALLBACK FsGetDiskFreeSpace(PULONGLONG FreeBytesAvailable,
 		return STATUS_NOT_IMPLEMENTED;
 	}
 
+	std::scoped_lock lock(Mutex);
 	GlobalFilesystem->GetTotalAndFreeBytes(*TotalNumberOfBytes, *TotalNumberOfFreeBytes);
 	*FreeBytesAvailable = *TotalNumberOfFreeBytes;
 
@@ -752,7 +901,12 @@ NTSTATUS DOKAN_CALLBACK FsGetFileSecurity(LPCWSTR FileName,
 	PULONG LengthNeeded,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "GetFileSecurity: %s", FileName);
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		//return STATUS_NO_SUCH_FILE;
+	}
+	FsLogger::LogFormat(FilesystemLogType::Info, "GetFileSecurity: %s", FileNameString.GetData());
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
@@ -767,7 +921,12 @@ NTSTATUS DOKAN_CALLBACK FsSetFileSecurity(LPCWSTR FileName,
 	ULONG SecurityDescriptorLength,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "SetFileSecurity: %s", FileName);
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		//return STATUS_NO_SUCH_FILE;
+	}
+	FsLogger::LogFormat(FilesystemLogType::Info, "SetFileSecurity: %s", FileNameString.GetData());
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
@@ -781,7 +940,12 @@ NTSTATUS DOKAN_CALLBACK FsFindStreams(LPCWSTR FileName,
 	PVOID FindStreamContext,
 	PDOKAN_FILE_INFO DokanFileInfo)
 {
-	FsLogger::LogFormat(FilesystemLogType::Info, "FindStreams: %s", FileName);
+	const FsString FileNameString = LPCWSTRToFsString(FileName);
+	if (IgnoreFilePath(FileNameString))
+	{
+		//return STATUS_NO_SUCH_FILE;
+	}
+	FsLogger::LogFormat(FilesystemLogType::Info, "FindStreams: %s", FileNameString.GetData());
 	if (!GlobalFilesystem)
 	{
 		FsLogger::LogFormat(FilesystemLogType::Error, "GlobalFilesystem is null");
@@ -812,9 +976,10 @@ int main()
 	ZeroMemory(&dokan_options, sizeof(DOKAN_OPTIONS));
 
 	dokan_options.Version = DOKAN_VERSION;
-	dokan_options.SingleThread = true;
+	dokan_options.SingleThread = false;
 	dokan_options.MountPoint = L"Y:";
 	dokan_options.Timeout = 5000;
+	dokan_options.Options |= DOKAN_OPTION_FILELOCK_USER_MODE;
 
 	DOKAN_OPERATIONS dokan_operations;
 	ZeroMemory(&dokan_operations, sizeof(DOKAN_OPERATIONS));

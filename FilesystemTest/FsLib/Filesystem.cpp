@@ -253,6 +253,49 @@ bool FsFilesystem::GetFile(const FsPath& InFileName, FsFileDescriptor& OutFileDe
 	return false;
 }
 
+void FsFilesystem::ValidateFileWrite(const FsPath& InPath, const uint8* Source, uint64 InOffset, uint64 InLength)
+{
+	const FsPath NormalizedPath = InPath.NormalizePath();
+
+	if (!FileExists(NormalizedPath))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "ValidateFileWrite: File %s does not exist", NormalizedPath.GetData());
+		fsCheck(false, "oh no");
+		return;
+	}
+
+	// Read from the file into a temporary buffer and make sure the data is correct
+	FsArray<uint8> ReadBuffer = FsArray<uint8>();
+	ReadBuffer.FillUninitialized(InLength);
+
+	uint64 BytesRead = 0;
+	if (!ReadFromFile(NormalizedPath, InOffset, ReadBuffer.GetData(), InLength, &BytesRead))
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "ValidateFileWrite: Failed to read file %s", NormalizedPath.GetData());
+		fsCheck(false, "oh no");
+		return;
+	}
+
+	if (BytesRead != InLength)
+	{
+		FsLogger::LogFormat(FilesystemLogType::Error, "ValidateFileWrite: Failed to read the correct amount of bytes from file %s", NormalizedPath.GetData());
+		fsCheck(false, "oh no");
+		return;
+	}
+
+	for (uint64 i = 0; i < InLength; i++)
+	{
+		if (ReadBuffer[i] != Source[i])
+		{
+			FsLogger::LogFormat(FilesystemLogType::Error, "ValidateFileWrite: File %s has incorrect data at byte %u", NormalizedPath.GetData(), i);
+			fsCheck(false, "oh no");
+			return;
+		}
+	}
+
+	FsLogger::LogFormat(FilesystemLogType::Info, "Validated write on file %s", InPath.GetData());
+}
+
 bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64 InOffset, uint64 InLength)
 {
 	const FsPath NormalizedPath = InPath.NormalizePath();
@@ -453,6 +496,7 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 
 		fsCheck(LoadedChunks == AllChunks.Length(), "Failed to write the correct amount of chunkies");
 
+		ValidateFileWrite(NormalizedPath, Source, InOffset, InLength);
 		return true;
 	}
 
@@ -1066,9 +1110,9 @@ bool FsFilesystem::DirectoryExists(const FsPath& InDirectoryName)
 
 bool FsFilesystem::GetDirectory(const FsPath& InDirectoryName, FsDirectoryDescriptor& OutDirectoryDescriptor, FsFileDescriptor* OutDirectoryFile)
 {
-	if (InDirectoryName.Contains("."))
+	//if (InDirectoryName.Contains("."))
 	{
-		return false;
+		//return false;
 	}
 
 	FsPath NormalizedPath = InDirectoryName.NormalizePath();
@@ -1129,10 +1173,10 @@ bool FsFilesystem::GetDirectory_Internal(const FsPath& DirectoryPath, const FsDi
 
 bool FsFilesystem::CreateDirectory(const FsPath& InDirectoryName)
 {
-	if (InDirectoryName.Contains("."))
+	//if (InDirectoryName.Contains("."))
 	{
-		FsLogger::LogFormat(FilesystemLogType::Error, "Cannot create directory with a file extension: %s", InDirectoryName.GetData());
-		return false;
+		//FsLogger::LogFormat(FilesystemLogType::Error, "Cannot create directory with a file extension: %s", InDirectoryName.GetData());
+		//return false;
 	}
 
 	FsPath NormalizedPath = InDirectoryName.NormalizePath();
