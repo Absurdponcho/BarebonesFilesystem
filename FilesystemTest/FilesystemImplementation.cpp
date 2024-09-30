@@ -164,7 +164,6 @@ FilesystemWriteResult FsFilesystemImpl::Write(uint64 Offset, uint64 Length, cons
 
 void FsLoggerImpl::OutputLog(const char* String, FilesystemLogType LogType)
 {
-	return; 
 	const char* logTypeString = nullptr;
 	switch (LogType)
 	{

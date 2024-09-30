@@ -1,12 +1,10 @@
 #pragma once
 #include "FsMemory.h"
 #include "FsStrUtil.h"
-#include <iostream>
 
 class FsArrayAllocator
 {
 public:
-	static uint64 Allocators;
 	virtual ~FsArrayAllocator()
 	{
 	}
@@ -43,18 +41,8 @@ class FsDefaultArrayAllocator : public FsArrayAllocator
 public:
 	using FsArrayAllocator::FsArrayAllocator;
 	
-
-	FsDefaultArrayAllocator()
-	{
-		Allocators++;
-		std::cout << Allocators << std::endl;
-	}
-
 	virtual ~FsDefaultArrayAllocator()
 	{
-		Allocators--;
-		std::cout << Allocators << std::endl;
-
 		if (Data)
 		{
 			FsMemory::Free(Data);

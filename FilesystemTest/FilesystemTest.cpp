@@ -5,8 +5,6 @@
 #include "FsLib/FsString.h"
 #include "FsLib/FsBitStream.h"
 #include "FsLib/FsTests.h"
-#include "FsLib/FsArrayAllocators.h"
-uint64 FsArrayAllocator::Allocators = 0;
 
 typedef _Return_type_success_(return >= 0) long NTSTATUS;
 #include <dokan/dokan.h>
