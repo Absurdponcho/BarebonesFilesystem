@@ -37,3 +37,4 @@ build/
 /x64
 VirtualFileSystem.dat
 /.vs
+*.diff
