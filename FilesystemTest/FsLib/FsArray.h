@@ -89,6 +89,15 @@ template<typename TElement, typename TAllocator = FsArrayAllocator>
 class FsBaseArrayImpl : public FsBaseArray<TElement>
 {
 public:
+	virtual ~FsBaseArrayImpl()
+	{
+		// call destructors on all elements
+		for (uint64 i = 0; i < Count; i++)
+		{
+			GetData()[i].~TElement();
+		}
+	}
+
 	FsBaseArrayImpl()
 	{
 
