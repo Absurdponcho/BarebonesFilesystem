@@ -46,3 +46,7 @@ CMakeCache.txt
 *.cmake
 /generated_headers
 /WindowsImpl/ThirdParty/Dokany/lib
+/Debug
+/FilesystemTest.dir
+/FsLib.dir
+*.user
