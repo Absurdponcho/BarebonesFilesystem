@@ -26,7 +26,7 @@ check_symbol_exists(strerror_r "string.h" HAS_STRERROR_R)
 set(GENERATED_HEADERS_DIR "${CMAKE_BINARY_DIR}/generated_headers")
 configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake/config.h.in ${GENERATED_HEADERS_DIR}/config.h)
 
-aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/FilesystemTest/FsLib FSLIB_SRC)
+aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/FsLib FSLIB_SRC)
 add_library(
     BarebonesFilesystem
     STATIC
@@ -50,7 +50,7 @@ endif()
 
 fetch_dokan()
 
-aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/FilesystemTest/ MAIN_SRC)
+aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/WindowsImpl/ MAIN_SRC)
 add_executable(
     FilesystemTest
     ${MAIN_SRC}
@@ -59,7 +59,7 @@ add_executable(
 target_include_directories(
     FilesystemTest PRIVATE 
     ${GENERATED_HEADERS_DIR}
-    ${CMAKE_CURRENT_LIST_DIR}/FilesystemTest/ThirdParty/Dokany/include
+    ${CMAKE_CURRENT_LIST_DIR}/WindowsImpl/ThirdParty/Dokany/include
 )
 
 target_compile_options(
