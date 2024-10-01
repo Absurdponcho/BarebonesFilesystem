@@ -26,8 +26,10 @@ check_symbol_exists(strerror_r "string.h" HAS_STRERROR_R)
 set(GENERATED_HEADERS_DIR "${CMAKE_BINARY_DIR}/generated_headers")
 configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake/config.h.in ${GENERATED_HEADERS_DIR}/config.h)
 
+set (FSLIB_INCLUDE_PATH ${CMAKE_CURRENT_LIST_DIR}/FsLib/include)
+
 aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/FsLib/source FSLIB_SRC)
-aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/FsLib/include FSLIB_INCLUDE)
+aux_source_directory(${FSLIB_INCLUDE_PATH} FSLIB_INCLUDE)
 add_library(
     FsLib
     STATIC
@@ -62,7 +64,7 @@ target_include_directories(
     FilesystemTest PRIVATE 
     ${GENERATED_HEADERS_DIR}
     ${CMAKE_CURRENT_LIST_DIR}/WindowsImpl/ThirdParty/Dokany/include
-    ${FSLIB_INCLUDE}
+    ${FSLIB_INCLUDE_PATH}
 )
 
 target_compile_options(
