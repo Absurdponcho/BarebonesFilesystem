@@ -1,8 +1,8 @@
 #pragma once
 
-#include "FsLib/Filesystem.h"
-#include "FsLib/FsMemory.h"
-#include "FsLib/FsLogger.h"
+#include "Filesystem.h"
+#include "FsMemory.h"
+#include "FsLogger.h"
 #include <fstream>
 
 class FsLoggerImpl : public FsLogger

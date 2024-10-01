@@ -46,6 +46,7 @@ target_compile_options(
 target_include_directories(
     FsLib PRIVATE 
     ${GENERATED_HEADERS_DIR}
+    ${FSLIB_INCLUDE_PATH}
 )
 
 if(NOT WIN32)

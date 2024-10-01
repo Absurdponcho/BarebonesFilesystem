@@ -1,10 +1,10 @@
 #include <iostream>
 #include "FilesystemImplementation.h"
-#include "FsLib/FsArray.h"
-#include "FsLib/FsLogger.h"
-#include "FsLib/FsString.h"
-#include "FsLib/FsBitStream.h"
-#include "FsLib/FsTests.h"
+#include "FsArray.h"
+#include "FsLogger.h"
+#include "FsString.h"
+#include "FsBitStream.h"
+#include "FsTests.h"
 
 typedef _Return_type_success_(return >= 0) long NTSTATUS;
 #include <dokan/dokan.h>
