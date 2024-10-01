@@ -29,20 +29,20 @@ configure_file(${CMAKE_CURRENT_LIST_DIR}/cmake/config.h.in ${GENERATED_HEADERS_D
 aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/FsLib/source FSLIB_SRC)
 aux_source_directory(${CMAKE_CURRENT_LIST_DIR}/FsLib/include FSLIB_INCLUDE)
 add_library(
-    BarebonesFilesystem
+    FsLib
     STATIC
     ${FSLIB_SRC}
     ${FSLIB_INCLUDE}
 )
 
 target_compile_options(
-    BarebonesFilesystem  PRIVATE
+    FsLib  PRIVATE
     -DCMAKE
     -DFS_LIB
 )
 
 target_include_directories(
-    BarebonesFilesystem PRIVATE 
+    FsLib PRIVATE 
     ${GENERATED_HEADERS_DIR}
 )
 
@@ -73,6 +73,6 @@ target_compile_options(
 target_link_libraries(
     FilesystemTest
     PRIVATE
-    BarebonesFilesystem
+    FsLib
     ${DOKAN_LIB}
 )
