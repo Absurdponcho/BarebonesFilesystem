@@ -38,3 +38,11 @@ build/
 VirtualFileSystem.dat
 /.vs
 *.diff
+/CMakeFiles
+CMakeCache.txt
+*.vcxproj
+*.sln
+*.filters
+*.cmake
+/generated_headers
+/WindowsImpl/ThirdParty/Dokany/lib
