@@ -360,7 +360,6 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 				// This file is empty and has no blocks allocated.
 				// We need to adjust the file offset to the new blocks
 				File.FileOffset = BlockIndexToAbsoluteOffset(NewBlocks[0]);
-				FsLogger::LogFormat(FilesystemLogType::Info, "Adjusting file offset to block [%u]", NewBlocks[0]);
 			}
 			else
 			{
@@ -438,8 +437,6 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 					FsLogger::LogFormat(FilesystemLogType::Error, "Failed to write chunk for file %s", NormalizedPath.GetData());
 					return false;
 				}
-
-				FsLogger::LogFormat(FilesystemLogType::Info, "Allocated space for file at block index %u", AbsoluteOffsetToBlockIndex(CurrentAbsoluteOffset));
 
 				CurrentOffset += ChunkContentLength;
 				BytesWritten += ChunkContentLength; 

@@ -735,10 +735,6 @@ NTSTATUS DOKAN_CALLBACK FsSetEndOfFile(LPCWSTR FileName,
 		return STATUS_SUCCESS;
 	}
 
-	// Create a buffer to hold zeroed bytes
-	FsArray<uint8> ZeroedBytes = FsArray<uint8>();
-	ZeroedBytes.FillZeroed(BytesToAdd);
-
 	// Write the zeroed bytes to the file	
 	if (!GlobalFilesystem->WriteToFile(FileNameString, nullptr, FileSize, BytesToAdd))
 	{
