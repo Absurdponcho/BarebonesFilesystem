@@ -740,7 +740,7 @@ NTSTATUS DOKAN_CALLBACK FsSetEndOfFile(LPCWSTR FileName,
 	ZeroedBytes.FillZeroed(BytesToAdd);
 
 	// Write the zeroed bytes to the file	
-	if (!GlobalFilesystem->WriteToFile(FileNameString, ZeroedBytes.GetData(), FileSize, BytesToAdd))
+	if (!GlobalFilesystem->WriteToFile(FileNameString, nullptr, FileSize, BytesToAdd))
 	{
 		return STATUS_NO_SUCH_FILE;
 	}

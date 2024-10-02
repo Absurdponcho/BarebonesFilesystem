@@ -309,6 +309,14 @@ public:
 		Count += Amount;
 	}
 
+	// @brief Adds the amount of uninitialized elements to the array
+	// @param Amount The amount of elements to add
+	void AddUninitialized(uint64 Amount)
+	{
+		EnsureCapacityForNewElements(Amount);
+		Count += Amount;
+	}
+
 	// @brief Returns the element at the specified index
 	TElement& operator[](uint64 Index)
 	{
@@ -641,11 +649,27 @@ public:
 		BitCount = NewCount * 8;
 	}
 
+	// @brief Fills the array with uninitialized elements
+	// @param NewCount The new count
+	void FillUninitialized(uint64 NewCount)
+	{
+		InternalArray.FillUninitialized(NewCount);
+		BitCount = NewCount * 8;
+	}
+
 	// @brief Adds the amount of zeroed elements to the array
 	// @param Amount The amount of elements to add
 	void AddZeroed(uint64 Amount)
 	{
 		InternalArray.AddZeroed(Amount);
+		BitCount += Amount * 8;
+	}
+
+	// @brief Adds the amount of uninitialized elements to the array
+	// @param Amount The amount of elements to add
+	void AddUninitialized(uint64 Amount)
+	{
+		InternalArray.AddUninitialized(Amount);
 		BitCount += Amount * 8;
 	}
 
