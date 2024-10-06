@@ -353,8 +353,6 @@ NTSTATUS DOKAN_CALLBACK FsReadFile(LPCWSTR FileName,
 
 	*ReadLength = BytesRead;
 
-	FsLogger::LogFormat(FilesystemLogType::Info, "ReadFile: %s, Offset %u, Bytes Read %u", FileNameString.GetData(), Offset, (uint64)BytesRead);
-
 	return STATUS_SUCCESS;
 }
 

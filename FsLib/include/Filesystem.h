@@ -20,6 +20,12 @@ struct FsPath : public FsFileNameString
 public:
 	using FsFileNameString::FsFileNameString;
 
+	virtual ~FsPath()
+	{
+		// Set count to zero to skip calling the destructor on all the characters
+		Data.SetCount(0);
+	}
+
 	FsPath(const char* InString) : FsFileNameString(InString)
 	{}
 
@@ -113,6 +119,18 @@ struct FsCachedChunkList
 {
 	FsPath FileName;
 	FsArray<FsFileChunkHeader> Chunks;
+};
+
+struct FsCachedDirectory
+{
+	uint64 Offset;
+	FsDirectoryDescriptor Directory;
+};
+
+struct FsReadCache
+{
+	uint64 BlockIndex = 0;
+	FsArray<uint8> Data;
 };
 
 class FsFilesystem
@@ -277,5 +295,15 @@ protected:
 	void ClearCachedChunks(const FsPath& FileName);
 	bool GetCachedChunks(const FsPath& FileName, FsArray<FsFileChunkHeader>& OutChunks);
 	FsArray<FsCachedChunkList> CachedChunks;
+
+	void CacheDirectory(uint64 Offset, const FsDirectoryDescriptor& Directory);
+	void ClearCachedDirectory(uint64 Offset);
+	bool GetCachedDirectory(uint64 Offset, FsDirectoryDescriptor& OutDirectory);
+	FsArray<FsCachedDirectory> CachedDirectories;
+
+	FsArray<uint8>* CacheRead(uint64 BlockIndex);
+	void ClearCachedRead(uint64 BlockIndex);
+	FsArray<uint8>* GetCachedRead(uint64 BlockIndex);
+	FsArray<FsReadCache> CachedReads;
 };
 

@@ -422,6 +422,8 @@ bool FsFilesystem::WriteToFile(const FsPath& InPath, const uint8* Source, uint64
 				continue;
 			}
 
+			ClearCachedRead(AbsoluteOffsetToBlockIndex(CurrentAbsoluteOffset));
+
 			if (!Source)
 			{
 				// We have no source data, so we are just allocating space for the file. Write the chunk headers only.
@@ -604,14 +606,28 @@ bool FsFilesystem::ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Dest
 			}
 
 			FsArray<uint8> ChunkBuffer = FsArray<uint8>();
-			ChunkBuffer.FillUninitialized(ChunkSize);
-
-			// Read the whole chunk
-			const FilesystemReadResult Result = Read(CurrentAbsoluteOffset, ChunkSize, ChunkBuffer.GetData());
-			if (Result != FilesystemReadResult::Success)
+			FsArray<uint8>* ChunkBufferPtr = GetCachedRead(AbsoluteOffsetToBlockIndex(CurrentAbsoluteOffset));
+			if (!ChunkBufferPtr)
 			{
-				FsLogger::LogFormat(FilesystemLogType::Error, "Failed to read chunk %u for file %s", CurrentChunkIndex - 1, NormalizedPath.GetData());
-				return false;
+				//ChunkBufferPtr = CacheRead(AbsoluteOffsetToBlockIndex(CurrentAbsoluteOffset));
+				ChunkBufferPtr = &ChunkBuffer;
+
+				ChunkBufferPtr->Empty(false);
+				ChunkBufferPtr->FillUninitialized(ChunkSize);
+
+				// Read the whole chunk
+				const FilesystemReadResult Result = Read(CurrentAbsoluteOffset, ChunkSize, ChunkBufferPtr->GetData());
+				if (Result != FilesystemReadResult::Success)
+				{
+					FsLogger::LogFormat(FilesystemLogType::Error, "Failed to read chunk %u for file %s", CurrentChunkIndex - 1, NormalizedPath.GetData());
+					return false;
+				}
+
+				FsLogger::LogFormat(FilesystemLogType::Info, "Read chunk %u (size %u) for file %s", CurrentChunkIndex - 1, ChunkSize, NormalizedPath.GetData());
+			}
+			else
+			{
+				FsLogger::LogFormat(FilesystemLogType::Info, "Using cached chunk %u (size %u) for file %s", CurrentChunkIndex - 1, ChunkBufferPtr->Length(), NormalizedPath.GetData());
 			}
 
 			for (uint64 ChunkByteIndex = sizeof(FsFileChunkHeader); ChunkByteIndex < ChunkSize; ChunkByteIndex++)
@@ -624,7 +640,7 @@ bool FsFilesystem::ReadFromFile(const FsPath& InPath, uint64 Offset, uint8* Dest
 
 				if (CurrentOffset >= Offset)
 				{
-					Destination[BytesRead] = ChunkBuffer[ChunkByteIndex];
+					Destination[BytesRead] = (*ChunkBufferPtr)[ChunkByteIndex];
 					BytesRead++;
 				}
 
@@ -1028,6 +1044,8 @@ void FsFilesystem::SetBlocksInUse(const FsBlockArray& BlockIndices, bool bInUse)
 		// Set the block in use
 		BlockBuffer.SetBit(BlockIndex, bInUse);
 		fsCheck(BlockBuffer.GetBit(BlockIndex) == bInUse, "Failed to set block in use");
+
+		ClearCachedRead(BlockIndex);
 	}
 
 	// Write the block back
@@ -1329,6 +1347,9 @@ bool FsFilesystem::SaveDirectory(const FsDirectoryDescriptor& Directory, uint64 
 		return true;
 	}
 
+	ClearCachedDirectory(AbsoluteOffset);
+	CacheDirectory(AbsoluteOffset, Directory);
+
 	FsLogger::LogFormat(FilesystemLogType::Verbose, "Saving directory at %u bytes", AbsoluteOffset);
 
 	// Resave the current directory
@@ -1362,6 +1383,12 @@ bool FsFilesystem::SaveDirectory(const FsDirectoryDescriptor& Directory, uint64 
 
 FsDirectoryDescriptor FsFilesystem::ReadFileAsDirectory(const FsFileDescriptor& FileDescriptor)
 {
+	FsDirectoryDescriptor DirectoryDescriptor;
+	if (GetCachedDirectory(FileDescriptor.FileOffset, DirectoryDescriptor))
+	{
+		return DirectoryDescriptor;
+	}
+
 	// Read the first block of the file
 	const uint64 ReadOffset = FileDescriptor.FileOffset;
 	const uint64 DirectoryChunkHeaderSize = sizeof(FsFileChunkHeader) + sizeof(uint64);
@@ -1406,8 +1433,9 @@ FsDirectoryDescriptor FsFilesystem::ReadFileAsDirectory(const FsFileDescriptor& 
 	}
 
 	// Now we have the whole file in memory, we can read the directory descriptor
-	FsDirectoryDescriptor DirectoryDescriptor;
 	DirectoryDescriptor.Serialize(FileReader);
+
+	CacheDirectory(FileDescriptor.FileOffset, DirectoryDescriptor);
 
 	return DirectoryDescriptor;
 }
@@ -1820,4 +1848,74 @@ bool FsFilesystem::GetTotalAndFreeBytes(uint64& OutTotalBytes, uint64& OutFreeBy
 	}
 
 	return true;
+}
+
+void FsFilesystem::CacheDirectory(uint64 Offset, const FsDirectoryDescriptor& Directory)
+{
+	ClearCachedDirectory(Offset);
+	CachedDirectories.Add(FsCachedDirectory(Offset, Directory));
+}
+
+void FsFilesystem::ClearCachedDirectory(uint64 Offset)
+{
+	for (uint64 i = 0; i < CachedDirectories.Length(); i++)
+	{
+		if (CachedDirectories[i].Offset == Offset)
+		{
+			CachedDirectories.RemoveAt(i);
+			return;
+		}
+	}
+}
+
+bool FsFilesystem::GetCachedDirectory(uint64 Offset, FsDirectoryDescriptor& OutDirectory)
+{
+	for (const FsCachedDirectory& CachedDirectory : CachedDirectories)
+	{
+		if (CachedDirectory.Offset == Offset)
+		{
+			OutDirectory = CachedDirectory.Directory;
+			return true;
+		}
+	}
+	return false;
+}
+
+FsArray<uint8>* FsFilesystem::CacheRead(uint64 BlockIndex)
+{
+	fsCheck(false, "Not Implemented (WIP)");
+	return nullptr;
+
+	ClearCachedRead(BlockIndex);
+	CachedReads.Add({BlockIndex, FsArray<uint8>()});
+	return &CachedReads[CachedReads.Length() - 1].Data;
+}
+
+void FsFilesystem::ClearCachedRead(uint64 BlockIndex)
+{
+	return;
+
+	for (uint64 i = 0; i < CachedReads.Length(); i++)
+	{
+		if (CachedReads[i].BlockIndex == BlockIndex)
+		{
+			CachedReads.RemoveAt(i);
+			return;
+		}
+	}
+}
+
+FsArray<uint8>* FsFilesystem::GetCachedRead(uint64 BlockIndex)
+{
+	return nullptr;
+
+	for (FsReadCache& CachedRead : CachedReads)
+	{
+		if (CachedRead.BlockIndex == BlockIndex)
+		{
+			return &CachedRead.Data;
+		}
+	}
+
+	return nullptr;
 }

@@ -486,6 +486,12 @@ public:
 		return *this;
 	}
 
+	// Unsafe, dont call unless you know what you are doing
+	void SetCount(uint64 NewCount)
+	{
+		Count = NewCount;
+	}
+
 protected:
 	TAllocator Allocator = TAllocator();
 	uint64 Count = 0;
@@ -508,6 +514,15 @@ class FsFixedLengthArray : public FsBaseArrayImpl<TElement, FsFixedLengthArrayAl
 {
 public:
 	using Super = FsBaseArrayImpl<TElement, FsFixedLengthArrayAllocator<TElement, FixedLength>>;
+
+	FsFixedLengthArray()
+	{
+	}
+
+	FsFixedLengthArray(const FsFixedLengthArray& Other)
+	{
+		*this = Other;
+	}
 
 	// Copy operator
 	FsFixedLengthArray& operator=(const FsFixedLengthArray& Other)
